@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Colour tmux sessions/windows by Claude account so work and personal are easy to tell apart.
+# Personal = CLAUDE_CONFIG_DIR is ~/.claude-personal; anything else is work.
+# Called from tmux hooks in ~/.tmux.conf.
+#   tmux-account-style session <session>          whole session: status bar, label, tint
+#   tmux-account-style window <window-id>         a new window: follows its session
+#   tmux-account-style personal-window <window>   personal window in a work session (prefix + P)
+#   tmux-account-style all                        restyle every running session
+set -u
+# Catppuccin mocha (matches ccmux's theme): blue for personal, green for work.
+# Tints are dark but clearly different.
+PERSONAL_BG='#89b4fa'; PERSONAL_TINT='#16213a'
+WORK_BG='#a6e3a1';     WORK_TINT='#16271b'
+FG='#1e1e2e'
+
+account_of() {
+    if tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=.*claude-personal'; then
+        echo personal
+    else
+        echo work
+    fi
+}
+
+# style_window <window> <account>
+style_window() {
+    local bg tint
+    if [ "$2" = personal ]; then bg=$PERSONAL_BG tint=$PERSONAL_TINT; else bg=$WORK_BG tint=$WORK_TINT; fi
+    tmux set-option -w -t "$1" @account "$2" \; \
+         set-option -w -t "$1" window-style "bg=$tint" \; \
+         set-option -w -t "$1" window-status-style "bg=$bg,fg=$FG" \; \
+         set-option -w -t "$1" window-status-current-style "bg=$bg,fg=$FG,bold"
+}
+
+# style_session <session id or =name>
+style_session() {
+    local s acct bg label w wacct
+    # set-option only takes the id form, so resolve it.
+    s=$(tmux display-message -p -t "$1:" '#{session_id}') || return 0
+    acct=$(account_of "$s")
+    if [ "$acct" = personal ]; then bg=$PERSONAL_BG label=PERSONAL; else bg=$WORK_BG label=WORK; fi
+    tmux set-option -t "$s" status-style "bg=$bg,fg=$FG" \; \
+         set-option -t "$s" status-left "#[bold] $label #[nobold]· #S " \; \
+         set-option -t "$s" status-left-length 40
+    # Keep windows already marked as the other account (prefix + P windows).
+    for w in $(tmux list-windows -t "$s" -F '#{window_id}'); do
+        wacct=$(tmux show-options -wqv -t "$w" @account)
+        style_window "$w" "${wacct:-$acct}"
+    done
+}
+
+case "${1:-}" in
+    session) style_session "${2:?session}" ;;
+    window)
+        w="${2:?window}"
+        # Already marked (e.g. by the prefix + P binding)? Leave it.
+        [ -n "$(tmux show-options -wqv -t "$w" @account)" ] && exit 0
+        style_window "$w" "$(account_of "$(tmux display-message -p -t "$w" '#{session_id}')")"
+        ;;
+    personal-window) style_window "${2:?window}" personal ;;
+    all) for s in $(tmux list-sessions -F '#{session_id}'); do style_session "$s"; done ;;
+esac
+exit 0

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# New tmux session running Claude on the personal account (separate config dir from
+# the work login in ~/.claude), in the current directory, with Remote Control on.
+# Drops to a shell when Claude exits, where plain `claude` still uses the personal account.
+# Always starts a fresh session (P-<FOLDER>, P-<FOLDER>-2, ...); use `tm` to go back
+# to an existing one.
+CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
+base="P-$(basename "$PWD" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')"
+name=$base n=1
+while tmux has-session -t "=$name" 2>/dev/null; do
+    n=$((n + 1)); name="$base-$n"
+done
+tmux new-session -d -s "$name" -c "$PWD" -e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal" \
+    "$CLAUDE --remote-control $name; exec bash"
+if [ -n "${TMUX:-}" ]; then
+    exec tmux switch-client -t "=$name"
+else
+    exec tmux attach-session -t "=$name"
+fi
