@@ -69,13 +69,31 @@ To update later: `git -C ~/Code/tm pull`. The scripts are symlinked, so that's a
 | `prefix + s` | tmux's own session list, to hop between sessions. |
 | `prefix + d` | Detach (session keeps running). If you opened it from `tm` in a plain terminal, you land back in the menu. |
 
-Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal, `S-<FOLDER>` for plain shells
-(upper case; `-2`, `-3` added if taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
+Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal, `S-<FOLDER>` for plain shells,
+`CX-<FOLDER>` for Codex (upper case; `-2`, `-3` added if taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
+
+## Settings
+
+`⚙ settings` at the bottom of the menu edits the config file for you:
+
+- **remote machines** — add, change addresses, rename, test or remove. Adding or editing one runs
+  a connection test and tells you what's wrong (unreachable, key not accepted, new host key to
+  trust).
+- **projects folder** — the folder new sessions pick a project from.
+- **colours** — the status-bar colour and dark background tint for work, personal, shell and
+  Codex sessions, as `#rrggbb`. Set a bar colour and the tint follows (15% of it); type `auto`
+  on a tint to go back to that. Running sessions on this machine are restyled straight away.
+  A remote machine uses its own colour settings.
+- **account names and prefixes** — what the work and personal accounts are called in the menu and
+  status bar, and how new sessions are named (default `WORK`/`W` and `PERSONAL`/`P`; existing
+  sessions keep their names). Plain shells are always `S-<FOLDER>` / `SHELL`, and Codex sessions `CX-<FOLDER>` / `CODEX`.
+
+Everything is stored in `~/.config/tm/config`, so you can also edit it by hand.
 
 ## Other machines
 
 `tm` can list and open the sessions of other machines over SSH (for example a Claude LXC), next
-to your local ones. Add them to `~/.config/tm/config`:
+to your local ones. Add them under `⚙ settings` → remote machines, or put them in `~/.config/tm/config`:
 
 ```bash
 TM_REMOTES="lxc=me@192.0.2.10,me@lxc.example-tailnet.ts.net"
@@ -121,8 +139,11 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
   close every session; macOS can't tell that apart from a shutdown, so it keeps the last
   snapshot. Close sessions you don't want back with `tmux kill-session -t NAME`, then wait a
   minute for the next snapshot.
-- **Colours** are 24-bit. iTerm2, Ghostty, WezTerm and Kitty show them exactly; Terminal.app may
-  show near matches.
+- **Colours** are 24-bit, and `tmux/tm.conf` declares that to tmux so the account tints survive SSH
+  (a remote tmux otherwise assumes 256 colours and rounds the very dark tints to the same grey).
+  Machines you attach to need `tm.conf` pulled and `tmux source-file ~/.tmux.conf` run once; it
+  applies to the next attach. iTerm2, Ghostty, WezTerm and Kitty show the colours exactly;
+  Terminal.app may show near matches.
 - **SSH into the Mac** needs Remote Login on (System Settings → General → Sharing).
 
 ## Accounts and colours
@@ -132,5 +153,7 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 | Work | `~/.claude` (Claude's default) | green `#a6e3a1` | `WORK` |
 | Personal | `~/.claude-personal` | blue `#89b4fa` | `PERSONAL` |
 | Shell (no account) | none | grey `#9399b2` | `SHELL` |
+| Codex (no account split) | `~/.codex` | orange `#fab387` | `CODEX` |
 
-Change the colours at the top of `bin/tmux-account-style`.
+Change the colours under `⚙ settings` → colours (the built-in defaults are at the top of
+`bin/tmux-account-style`).

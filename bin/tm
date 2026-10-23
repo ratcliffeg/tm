@@ -9,17 +9,29 @@ set -uo pipefail
 
 # Settings (TM_PROJECTS_ROOT) can go in ~/.config/tm/config; install.sh writes it.
 TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
-# Account names are editable in tm's settings menu: a label shown beside sessions and a prefix
-# used when naming new ones (defaults WORK/W and PERSONAL/P).
+# "#rrggbb" helpers: text colour, background colour, and a dark tint (15%) of a colour.
+hex_esc()   { local h=${1#\#}; printf '\e[38;2;%d;%d;%dm' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+hex_bgesc() { local h=${1#\#}; printf '\e[48;2;%d;%d;%dm' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+tint_of()   { local h=${1#\#}; printf '#%02x%02x%02x' $((0x${h:0:2} * 15 / 100)) $((0x${h:2:2} * 15 / 100)) $((0x${h:4:2} * 15 / 100)); }
+# Account names and colours are editable in tm's settings menu: a label shown beside sessions, a
+# prefix used when naming new ones (defaults WORK/W and PERSONAL/P), and a bar colour plus
+# background tint for each kind of session.
 load_settings() {
-    unset TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX
+    unset TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX TM_REMOTES TM_PROJECTS_ROOT \
+          TM_WORK_COLOUR TM_WORK_TINT TM_PERSONAL_COLOUR TM_PERSONAL_TINT \
+          TM_SHELL_COLOUR TM_SHELL_TINT TM_CODEX_COLOUR TM_CODEX_TINT
     [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
     WORK_LABEL="${TM_WORK_LABEL:-WORK}" WORK_PREFIX="${TM_WORK_PREFIX:-W}"
     PERSONAL_LABEL="${TM_PERSONAL_LABEL:-PERSONAL}" PERSONAL_PREFIX="${TM_PERSONAL_PREFIX:-P}"
+    PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
+    WORK_HEX="${TM_WORK_COLOUR:-#a6e3a1}"         WORK_TINT_HEX="${TM_WORK_TINT:-$([ -n "${TM_WORK_COLOUR:-}" ] && tint_of "$TM_WORK_COLOUR" || echo '#16271b')}"
+    PERSONAL_HEX="${TM_PERSONAL_COLOUR:-#89b4fa}" PERSONAL_TINT_HEX="${TM_PERSONAL_TINT:-$([ -n "${TM_PERSONAL_COLOUR:-}" ] && tint_of "$TM_PERSONAL_COLOUR" || echo '#16213a')}"
+    SHELL_HEX="${TM_SHELL_COLOUR:-#9399b2}"       SHELL_TINT_HEX="${TM_SHELL_TINT:-$([ -n "${TM_SHELL_COLOUR:-}" ] && tint_of "$TM_SHELL_COLOUR" || echo '#1e1e2e')}"
+    CODEX_HEX="${TM_CODEX_COLOUR:-#fab387}"       CODEX_TINT_HEX="${TM_CODEX_TINT:-$([ -n "${TM_CODEX_COLOUR:-}" ] && tint_of "$TM_CODEX_COLOUR" || echo '#2b2016')}"
+    C_WORK=$(hex_esc "$WORK_HEX") C_PERSONAL=$(hex_esc "$PERSONAL_HEX") C_SHELL=$(hex_esc "$SHELL_HEX") C_CODEX=$(hex_esc "$CODEX_HEX")
 }
 load_settings
 lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
-PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
 PERSONAL_DIR="$HOME/.claude-personal"
 # fzf calls this script back for previews; no readlink -f on older macOS.
@@ -27,8 +39,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
 
-# Same colours as the tmux status bars (tmux-account-style): blue = personal, green = work.
-C_PERSONAL=$'\e[38;2;137;180;250m' C_WORK=$'\e[38;2;166;227;161m' C_SHELL=$'\e[38;2;147;153;178m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
+# Menu colours follow the tmux status bars (set in load_settings); only dim/reset live here.
+C_DIM=$'\e[2m' C_OFF=$'\e[0m'
 
 # --- remote machines ------------------------------------------------------------------
 # TM_REMOTES in the config lists other machines whose tmux sessions tm should show:
@@ -56,7 +68,7 @@ remote_target() {
     local name=$1 last t
     last=$(cat "$TM_CACHE/target-$name" 2>/dev/null)
     for t in $last $(remote_targets "$name" | grep -vxF "$last"); do
-        if ssh "${SSH_OPTS[@]}" "$t" true 2>/dev/null; then
+        if ssh -n "${SSH_OPTS[@]}" "$t" true 2>/dev/null; then
             echo "$t" >"$TM_CACHE/target-$name"
             echo "$t"
             return 0
@@ -70,7 +82,7 @@ rsh() {
     local name=$1 t
     shift
     t=$(cat "$TM_CACHE/target-$name" 2>/dev/null) || t=$(remote_target "$name") || return 1
-    ssh "${SSH_OPTS[@]}" "$t" "$@"
+    ssh -n "${SSH_OPTS[@]}" "$t" "$@"
 }
 
 # rrun <name> <script> [args...]: run a bash script (read from stdin) on the remote, with args.
@@ -90,7 +102,7 @@ remote_section() {
         printf 'X:\t%s── %s (offline) ──%s\n' "$C_DIM" "$name" "$C_OFF"
         return
     fi
-    out=$(ssh "${SSH_OPTS[@]}" "$target" 'tmux list-sessions -F "#{session_name}|#{session_attached}" 2>/dev/null |
+    out=$(ssh -n "${SSH_OPTS[@]}" "$target" 'tmux list-sessions -F "#{session_name}|#{session_attached}" 2>/dev/null |
         while IFS="|" read -r s a; do
             printf "%s|%s|%s\n" "$s" "$a" "$(tmux show-environment -t "=$s:" CLAUDE_CONFIG_DIR 2>/dev/null)"
         done')
@@ -100,6 +112,7 @@ remote_section() {
         [ "$attached" != 0 ] && attached=' (attached)' || attached=''
         case "$s$env" in
             S-*) printf 'R:%s:%s\t%s%-22s SHELL%s%s%s%s\n' "$name" "$s" "$C_SHELL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            CX-*) printf 'R:%s:%s\t%s%-22s CODEX%s%s%s%s\n' "$name" "$s" "$C_CODEX" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
             *claude-personal*) printf 'R:%s:%s\t%s%-22s %s%s%s%s%s\n' "$name" "$s" "$C_PERSONAL" "$s" "$PERSONAL_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
             *)                 printf 'R:%s:%s\t%s%-22s %s%s%s%s%s\n' "$name" "$s" "$C_WORK" "$s" "$WORK_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
         esac
@@ -133,10 +146,13 @@ go_remote() {
     ssh -t "${SSH_OPTS[@]}" "$target" tmux attach-session -t "=$2"
 }
 
-# account_of <session> -> personal|work|shell
+# account_of <session> -> personal|work|shell|codex
 account_of() {
     # Plain shell sessions (S-<FOLDER>) have no account.
-    case "$(tmux display-message -p -t "$1" '#{session_name}' 2>/dev/null)" in S-*) echo shell; return ;; esac
+    case "$(tmux display-message -p -t "$1" '#{session_name}' 2>/dev/null)" in
+        S-*) echo shell; return ;;
+        CX-*) echo codex; return ;;
+    esac
     if tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=.*claude-personal'; then
         echo personal
     else
@@ -180,7 +196,7 @@ session_name() {
 #   R:<remote>:<session>  session on another machine (TM_REMOTES)
 #   D:<dir>      folder               T:             type a path      X:  separator
 preview() {
-    local key=$1 dir rest
+    local key=$1 dir rest k pre bn tn
     case "$key" in
         S:*) tmux capture-pane -ep -t "=${key#S:}:" 2>/dev/null || echo "(this session has closed)" ;;
         R:*)
@@ -202,8 +218,23 @@ preview() {
         G:wl|G:pl) printf 'The name shown beside sessions of this account, in the menu and the tmux\nstatus bar. Upper-cased. Existing sessions keep their names.\n' ;;
         G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
         G:r) printf 'Back to WORK / W and PERSONAL / P.\n' ;;
+        G:cl) printf 'The status-bar colour and the dark background tint for work, personal, shell\nand Codex sessions. Set a bar colour and the tint follows (or set it yourself).\n' ;;
+        Q:r) printf 'Back to the built-in colours.\n' ;;
+        Q:*)
+            k=${key#Q:}
+            case "${k:0:1}" in w) pre=WORK ;; p) pre=PERSONAL ;; s) pre=SHELL ;; *) pre=CODEX ;; esac
+            bn="${pre}_HEX"; tn="${pre}_TINT_HEX"
+            printf 'Status bar and window background for this kind of session:\n\n%s\e[38;2;30;30;46m  %s · session name  %s\n%s  window background, as terminal text sees it  %s\n\nStatus bar %s    Tint %s\n' \
+                "$(hex_bgesc "${!bn}")" "$pre" "$C_OFF" "$(hex_bgesc "${!tn}")" "$C_OFF" "${!bn}" "${!tn}"
+            ;;
+        G:rm) printf 'Other machines whose tmux sessions tm lists and opens over SSH.\nAdd, change, test or remove them here.\n' ;;
+        G:pr) printf 'The folder tm lists projects from when you start a new session.\n\nCurrently: %s\n' "$PROJECTS_ROOT" ;;
+        M:+) printf 'Add another machine.\n\nYou give it a name and one or more SSH addresses (comma-separated,\nin order of preference, e.g. me@192.168.1.5,me@host.ts.net).\nThe first address that answers is used.\n' ;;
+        M:*) printf '%s\n\n' "${key#M:}"; remote_targets "${key#M:}" | sed 's/^/  /'; printf '\nLast address that worked: %s\n' "$(cat "$TM_CACHE/target-${key#M:}" 2>/dev/null || echo '(none yet)')" ;;
+        E:*) printf 'Change %s for this remote.\n' "${key#E:}" ;;
         K:cw) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_WORK" "$WORK_LABEL" "$C_OFF" "$WORK_PREFIX" ;;
         K:cp) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_PERSONAL" "$PERSONAL_LABEL" "$C_OFF" "$PERSONAL_PREFIX" ;;
+        K:x)  printf '%sNew Codex session%s\n\nOpenAI Codex in the chosen folder. Named CX-<FOLDER>.\n' "$C_CODEX" "$C_OFF" ;;
         K:s)  printf '%sNew shell session%s\n\nA plain terminal, no Claude. Named S-<FOLDER>.\n' "$C_SHELL" "$C_OFF" ;;
         RD:*)
             rest=${key#RD:}
@@ -311,21 +342,26 @@ remote_pick_folder() {
 new_session() {
     local name=${1:-} kind sel dir title session base where=locally
     [ -n "$name" ] && where="on $name"
-    sel=$(printf 'K:cw\t%s+ Claude   %s%s\nK:cp\t%s+ Claude   %s%s\nK:s\t%s+ Shell%s\n' \
-              "$C_WORK" "$(lc "$WORK_LABEL")" "$C_OFF" "$C_PERSONAL" "$(lc "$PERSONAL_LABEL")" "$C_OFF" "$C_SHELL" "$C_OFF" |
+    sel=$(printf 'K:cw\t%s+ Claude   %s%s\nK:cp\t%s+ Claude   %s%s\nK:x\t%s+ Codex%s\nK:s\t%s+ Shell%s\n' \
+              "$C_WORK" "$(lc "$WORK_LABEL")" "$C_OFF" "$C_PERSONAL" "$(lc "$PERSONAL_LABEL")" "$C_OFF" "$C_CODEX" "$C_OFF" "$C_SHELL" "$C_OFF" |
           fzf "${FZF_OPTS[@]}" --border-label=" new session $where " --header='Enter select · Esc back') || return 0
     kind=${sel%%$'\t'*}; kind=${kind#K:}
     case "$kind" in
         cw) title="Claude · $(lc "$WORK_LABEL")" ;;   cp) title="Claude · $(lc "$PERSONAL_LABEL")" ;;
+        x)  title='Codex' ;;
         s)  title='Shell' ;;
         *) return 0 ;;
     esac
+    if [ "$kind" = x ] && [ -z "$name" ] && ! command -v codex >/dev/null; then
+        echo "Codex isn't installed on this machine." >&2; sleep 2; return 0
+    fi
     if [ -z "$name" ]; then
         dir=$(pick_folder "$title") || return 0
         base=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
         case "$kind" in
             cw) start_session "$WORK_PREFIX-$base" "$dir" "$CLAUDE --remote-control $WORK_PREFIX-$base" ;;
             cp) start_session "$PERSONAL_PREFIX-$base" "$dir" "$CLAUDE --remote-control $PERSONAL_PREFIX-$base" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR" ;;
+            x)  start_session "CX-$base" "$dir" "$(command -v codex)" ;;
             s)  start_session "$(session_name S "$dir")" "$dir" "" ;;
         esac
         return 0
@@ -335,7 +371,10 @@ new_session() {
     session=$(rrun "$name" '
 kind=$1 acct=$2 dir=$3
 base=$(basename "$dir" | tr ".: " "---" | tr "[:lower:]" "[:upper:]")
-case "$acct" in shell) base="S-$base" ;; *) base="$4-$base" ;; esac
+case "$acct" in shell) base="S-$base" ;; codex) base="CX-$base" ;; *) base="$4-$base" ;; esac
+if [ "$kind" = x ]; then
+    codex=$(command -v codex) || { echo "codex isn'"'"'t installed on this machine" >&2; exit 3; }
+fi
 claude=$(command -v claude || echo "$HOME/.local/bin/claude")
 name=$base
 if [ "$kind" = s ]; then
@@ -345,20 +384,22 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
     args=(new-session -d -s "$name" -c "$dir")
     [ "$acct" = personal ] && args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal")
     [ "$kind" = c ] && args+=("$claude --remote-control $name; exec bash")
+    [ "$kind" = x ] && args+=("$codex; exec bash")
     tmux -u "${args[@]}" || exit 1
 fi
-echo "$name"' "${kind:0:1}" "$(case "$kind" in cp) echo personal ;; s) echo shell ;; *) echo work ;; esac)" "$dir" "$([ "$kind" = cp ] && echo "$PERSONAL_PREFIX" || echo "$WORK_PREFIX")") || { echo "Couldn't start the session on $name" >&2; sleep 2; return 0; }
+echo "$name"' "${kind:0:1}" "$(case "$kind" in cp) echo personal ;; s) echo shell ;; x) echo codex ;; *) echo work ;; esac)" "$dir" "$([ "$kind" = cp ] && echo "$PERSONAL_PREFIX" || echo "$WORK_PREFIX")") || { echo "Couldn't start the session on $name" >&2; sleep 2; return 0; }
     go_remote "$name" "$session"
 }
 
 main_list() {
     local s attached
-    printf 'X:\t%s── local ──%s\n' "$C_DIM" "$C_OFF"
+    printf 'X:\t%s── local (%s) ──%s\n' "$C_DIM" "$(hostname -s 2>/dev/null || hostname)" "$C_OFF"
     while IFS= read -r s; do
         attached=$(tmux display-message -p -t "=$s:" '#{?session_attached, (attached),}')
         case "$(account_of "=$s:")" in
             personal) printf 'S:%s\t%s%-22s %s%s%s%s%s\n' "$s" "$C_PERSONAL" "$s" "$PERSONAL_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
             shell)    printf 'S:%s\t%s%-22s SHELL%s%s%s%s\n' "$s" "$C_SHELL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            codex)    printf 'S:%s\t%s%-22s CODEX%s%s%s%s\n' "$s" "$C_CODEX" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
             *)        printf 'S:%s\t%s%-22s %s%s%s%s%s\n' "$s" "$C_WORK" "$s" "$WORK_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
         esac
     done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
@@ -394,16 +435,188 @@ ask_setting() {
     tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all
 }
 
+# remotes_write <old name|""> <new name> <targets|""> : add (old empty), change or remove (targets empty)
+remotes_write() {
+    local old=$1 new=$2 targets=$3 e out="" found=0
+    for e in ${TM_REMOTES:-}; do
+        if [ -n "$old" ] && [ "${e%%=*}" = "$old" ]; then
+            found=1
+            [ -n "$targets" ] && out="$out $new=$targets"
+        else
+            out="$out $e"
+        fi
+    done
+    if [ "$found" = 0 ] && [ -n "$targets" ]; then out="$out $new=$targets"; fi
+    set_config TM_REMOTES "${out# }"
+    rm -f "$TM_CACHE/target-$old" "$TM_CACHE/target-$new"
+    load_settings
+}
+
+pause() { read -rsp "Press Enter to continue " _ || true; echo; }
+
+# remote_test <name>: try each address and say what happened; offers to trust a new host key.
+remote_test() {
+    local name=$1 t out ans
+    echo "Testing ${name}…"
+    for t in $(remote_targets "$name"); do
+        out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=4 "$t" true 2>&1)
+        if [ $? -eq 0 ]; then echo "  ✓ $t"; continue; fi
+        case "$out" in
+            *"Host key verification failed"*|*"authenticity"*)
+                read -rp "  ? $t: first time connecting to this machine. Trust its host key? [y/N] " ans
+                if [ "$ans" = y ] || [ "$ans" = Y ]; then
+                    if ssh -n -o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new "$t" true >/dev/null 2>&1; then
+                        echo "  ✓ $t (host key saved)"
+                    else
+                        echo "  ✗ $t: host key saved, but login failed. Is your key installed there? (ssh-copy-id $t)"
+                    fi
+                else
+                    echo "  ✗ $t: host key not trusted"
+                fi
+                ;;
+            *"Permission denied"*) echo "  ✗ $t: answers, but your key isn't accepted. Run: ssh-copy-id $t" ;;
+            *"timed out"*|*"No route"*|*"refused"*|*"resolve"*) echo "  ✗ $t: can't reach it ($(echo "$out" | tail -1 | sed 's/^ssh: //'))" ;;
+            *) echo "  ✗ $t: $(echo "$out" | tail -1)" ;;
+        esac
+    done
+}
+
+valid_targets() { # comma-separated, no spaces or quotes, each non-empty
+    [[ "$1" =~ ^[A-Za-z0-9._@:-]+(,[A-Za-z0-9._@:-]+)*$ ]]
+}
+
+remote_add() {
+    local name targets e
+    read -erp "Name for this machine (Enter = cancel): " name || return 0
+    [ -z "$name" ] && return 0
+    [[ "$name" =~ ^[A-Za-z0-9_-]{1,20}$ ]] || { echo "Use up to 20 letters, digits, - or _." >&2; sleep 2; return 0; }
+    for e in ${TM_REMOTES:-}; do [ "${e%%=*}" = "$name" ] && { echo "There is already a remote called $name." >&2; sleep 2; return 0; }; done
+    read -erp "SSH address(es), comma-separated, best first (e.g. me@192.168.1.5,me@host.ts.net): " targets || return 0
+    [ -z "$targets" ] && return 0
+    valid_targets "$targets" || { echo "Addresses can't contain spaces or quotes." >&2; sleep 2; return 0; }
+    remotes_write "" "$name" "$targets"
+    echo "Added $name."
+    remote_test "$name"
+    pause
+}
+
+remote_edit() {
+    local name=$1 sel v current
+    while true; do
+        current=$(remote_targets "$name" | paste -sd, -)
+        [ -z "$current" ] && return 0     # removed or renamed
+        sel=$(printf 'E:addr\t%saddresses:%s %s\nE:name\t%srename%s\nE:test\t%stest the connection%s\nE:del\t%sremove this machine%s\n' \
+                  "$C_DIM" "$C_OFF" "$current" "$C_DIM" "$C_OFF" "$C_DIM" "$C_OFF" "$C_DIM" "$C_OFF" |
+              fzf "${FZF_OPTS[@]}" --border-label=" tm · $name " --header='Enter select · Esc back') || return 0
+        case "${sel%%$'\t'*}" in
+            E:addr)
+                read -erp "Addresses [$current] (Enter = keep): " v || continue
+                [ -z "$v" ] && continue
+                valid_targets "$v" || { echo "Addresses can't contain spaces or quotes." >&2; sleep 2; continue; }
+                remotes_write "$name" "$name" "$v"; remote_test "$name"; pause
+                ;;
+            E:name)
+                read -erp "New name [$name] (Enter = keep): " v || continue
+                [ -z "$v" ] && continue
+                [[ "$v" =~ ^[A-Za-z0-9_-]{1,20}$ ]] || { echo "Use up to 20 letters, digits, - or _." >&2; sleep 2; continue; }
+                remotes_write "$name" "$v" "$current"; return 0
+                ;;
+            E:test) remote_test "$name"; pause ;;
+            E:del)
+                read -rp "Remove $name? Its sessions keep running; tm just stops listing them. [y/N] " v
+                if [ "$v" = y ] || [ "$v" = Y ]; then remotes_write "$name" "$name" ""; return 0; fi
+                ;;
+        esac
+    done
+}
+
+remotes_menu() {
+    local sel name
+    while true; do
+        load_settings
+        sel=$({
+                for name in $(remote_names); do
+                    printf 'M:%s\t%-16s %s%s%s\n' "$name" "$name" "$C_DIM" "$(remote_targets "$name" | paste -sd, -)" "$C_OFF"
+                done
+                printf 'M:+\t%s+ add a remote machine%s\n' "$C_DIM" "$C_OFF"
+              } | fzf "${FZF_OPTS[@]}" --border-label=' tm · remote machines ' --header='Enter edit · Esc back') || return 0
+        case "${sel%%$'\t'*}" in
+            M:+) remote_add ;;
+            M:*) sel=${sel%%$'\t'*}; remote_edit "${sel#M:}" ;;
+        esac
+    done
+}
+
+ask_projects_root() {
+    local v
+    read -erp "Projects folder [$PROJECTS_ROOT] (Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    v="${v/#\~/$HOME}"
+    [ -d "$v" ] || { echo "No such folder: $v" >&2; sleep 2; return 0; }
+    set_config TM_PROJECTS_ROOT "$(cd "$v" && pwd)"
+    load_settings
+}
+
+restyle() { tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all; return 0; }
+
+# ask_colour <KEY> <what> <current> [auto]: edit a #rrggbb colour ("auto" clears a tint override).
+ask_colour() {
+    local v
+    read -erp "$2 [$3] (#rrggbb${4:+, or auto}; Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    if [ "$v" = auto ] && [ -n "${4:-}" ]; then
+        set_config "$1"
+    else
+        v=${v#\#}
+        [[ "$v" =~ ^[0-9A-Fa-f]{6}$ ]] || { echo "Use six hex digits, like a6e3a1 or #a6e3a1." >&2; sleep 2; return 0; }
+        set_config "$1" "#$(lc "$v")"
+    fi
+    load_settings
+    restyle
+}
+
+colours_menu() {
+    local sel k pre name bn tn auto ov
+    while true; do
+        load_settings
+        sel=$(
+            for k in w:WORK:work p:PERSONAL:personal s:SHELL:shell x:CODEX:codex; do
+                pre=$(echo "$k" | cut -d: -f2); name=$(echo "$k" | cut -d: -f3); k=${k%%:*}
+                bn="${pre}_HEX"; tn="${pre}_TINT_HEX"; auto=""
+                ov="TM_${pre}_TINT"; [ -z "${!ov:-}" ] && auto=" (auto)"
+                printf 'Q:%sb\t%s  %s %-8s %-10s %s%s\n' "$k" "$(hex_bgesc "${!bn}")" "$C_OFF" "$name" "bar colour" "${!bn}" ""
+                printf 'Q:%st\t%s  %s %-8s %-10s %s%s\n' "$k" "$(hex_bgesc "${!tn}")" "$C_OFF" "$name" "tint" "${!tn}" "$auto"
+            done
+            printf 'Q:r\t%sreset all colours to defaults%s\n' "$C_DIM" "$C_OFF"
+        ) 
+        sel=$(printf '%s\n' "$sel" | fzf "${FZF_OPTS[@]}" --border-label=' tm · colours ' --header='Enter edit · Esc back') || return 0
+        k=${sel%%$'\t'*}; k=${k#Q:}
+        case "$k" in
+            r) for pre in WORK PERSONAL SHELL CODEX; do set_config "TM_${pre}_COLOUR"; set_config "TM_${pre}_TINT"; done; load_settings; restyle ;;
+            ?b|?t)
+                case "${k:0:1}" in w) pre=WORK ;; p) pre=PERSONAL ;; s) pre=SHELL ;; *) pre=CODEX ;; esac
+                if [ "${k:1:1}" = b ]; then bn="${pre}_HEX"; ask_colour "TM_${pre}_COLOUR" "$pre bar colour" "${!bn}"
+                else tn="${pre}_TINT_HEX"; ask_colour "TM_${pre}_TINT" "$pre background tint" "${!tn}" auto; fi
+                ;;
+        esac
+    done
+}
+
 settings_menu() {
     local sel
     while true; do
         load_settings
-        sel=$(printf 'G:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset names to defaults%s\n' \
+        sel=$(printf 'G:rm\t%-26s %s\nG:pr\t%-26s %s\nG:cl\tcolours\nG:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset account names to defaults%s\n' \
+                  "remote machines" "$(remote_names | paste -sd' ' -)" \
+                  "projects folder" "$(echo "$PROJECTS_ROOT" | sed "s|^$HOME|~|")" \
                   "$C_WORK" "work account name" "$WORK_LABEL" "$C_OFF" "$C_WORK" "work session prefix" "$WORK_PREFIX" "$C_OFF" \
                   "$C_PERSONAL" "personal account name" "$PERSONAL_LABEL" "$C_OFF" "$C_PERSONAL" "personal session prefix" "$PERSONAL_PREFIX" "$C_OFF" \
                   "$C_DIM" "$C_OFF" |
               fzf "${FZF_OPTS[@]}" --border-label=' tm · settings ' --header='Enter edit · Esc back') || return 0
         case "${sel%%$'\t'*}" in
+            G:rm) remotes_menu ;;
+            G:pr) ask_projects_root ;;
+            G:cl) colours_menu ;;
             G:wl) ask_setting TM_WORK_LABEL 'Work account name' "$WORK_LABEL" label ;;
             G:wp) ask_setting TM_WORK_PREFIX 'Work session prefix' "$WORK_PREFIX" prefix "$PERSONAL_PREFIX" ;;
             G:pl) ask_setting TM_PERSONAL_LABEL 'Personal account name' "$PERSONAL_LABEL" label ;;
