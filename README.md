@@ -66,10 +66,30 @@ To update later: `git -C ~/Code/tm pull`. The scripts are symlinked, so that's a
 | `claude-personal` | Claude on the personal account, right here (no tmux). |
 | `prefix + P` | Inside tmux: new window with personal-account Claude in the current folder. |
 | `prefix + s` | tmux's own session list, to hop between sessions. |
-| `prefix + d` | Detach (session keeps running). |
+| `prefix + d` | Detach (session keeps running). If you opened it from `tm` in a plain terminal, you land back in the menu. |
 
 Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal (upper case; `-2`, `-3` added if
 taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
+
+## Other machines
+
+`tm` can list and open the sessions of other machines over SSH (for example a Claude LXC), next
+to your local ones. Add them to `~/.config/tm/config`:
+
+```bash
+TM_REMOTES="claude-lxc=guyr@192.168.10.55,guyr@100.66.6.103"
+```
+
+Space-separated `name=target[,fallback...]` entries. The first target that answers wins, so put
+the LAN address before the Tailscale one and it works at home and away. Needs key-based SSH
+(`ssh-copy-id`); `tm` only needs to be installed on the machine you run it on.
+
+- Remote sessions show under a `── name ──` heading with the same WORK / PERSONAL colours and a
+  live preview. An unreachable machine shows as `(offline)` and doesn't hold the menu up.
+- Enter attaches over SSH. Inside tmux it opens a new window named `name:SESSION`; press the tmux
+  prefix twice to send keys to the remote tmux (`prefix prefix d` detaches it). From a plain
+  terminal there is only one tmux, so a single `prefix d` detaches and returns you to the menu.
+- Starting new sessions stays local; use the remote's own `tm` for those.
 
 ## Files
 

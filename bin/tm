@@ -21,6 +21,97 @@ command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
 # Same colours as the tmux status bars (tmux-account-style): blue = personal, green = work.
 C_PERSONAL=$'\e[38;2;137;180;250m' C_WORK=$'\e[38;2;166;227;161m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
 
+# --- remote machines ------------------------------------------------------------------
+# TM_REMOTES in the config lists other machines whose tmux sessions tm should show:
+#   TM_REMOTES="claude-lxc=guyr@192.168.10.55,guyr@100.66.6.103 other=user@host"
+# Space-separated "<name>=<ssh target>[,<fallback target>...]"; the first target that
+# answers wins (LAN address first, then e.g. Tailscale). Needs key-based SSH.
+TM_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tm"
+mkdir -p "$TM_CACHE"
+# ControlMaster keeps one connection open, so previews don't pay an SSH handshake each time.
+# (unix sockets are limited to 104 bytes of path, so a deep cache folder falls back to /tmp)
+CM_DIR="$TM_CACHE"
+if [ ${#CM_DIR} -gt 50 ]; then CM_DIR="/tmp/tm-$(id -u)"; mkdir -p -m 700 "$CM_DIR"; fi
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=3 -o ControlMaster=auto
+          -o "ControlPath=$CM_DIR/cm-%C" -o ControlPersist=120)
+
+remote_names() { local e; for e in ${TM_REMOTES:-}; do echo "${e%%=*}"; done; }
+
+remote_targets() { # <name> -> its targets, one per line
+    local e
+    for e in ${TM_REMOTES:-}; do [ "${e%%=*}" = "$1" ] && echo "${e#*=}" | tr ',' '\n'; done
+}
+
+# remote_target <name>: print the target that answers (last good one first); 1 if none.
+remote_target() {
+    local name=$1 last t
+    last=$(cat "$TM_CACHE/target-$name" 2>/dev/null)
+    for t in $last $(remote_targets "$name" | grep -vxF "$last"); do
+        if ssh "${SSH_OPTS[@]}" "$t" true 2>/dev/null; then
+            echo "$t" >"$TM_CACHE/target-$name"
+            echo "$t"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# rsh <name> <command...>: run a command on the remote using the last good target.
+rsh() {
+    local name=$1 t
+    shift
+    t=$(cat "$TM_CACHE/target-$name" 2>/dev/null) || t=$(remote_target "$name") || return 1
+    ssh "${SSH_OPTS[@]}" "$t" "$@"
+}
+
+# remote_section <name>: the menu lines for one remote.
+remote_section() {
+    local name=$1 target out s attached env
+    if ! target=$(remote_target "$name"); then
+        printf 'X:\t%s── %s (offline) ──%s\n' "$C_DIM" "$name" "$C_OFF"
+        return
+    fi
+    out=$(ssh "${SSH_OPTS[@]}" "$target" 'tmux list-sessions -F "#{session_name}|#{session_attached}" 2>/dev/null |
+        while IFS="|" read -r s a; do
+            printf "%s|%s|%s\n" "$s" "$a" "$(tmux show-environment -t "=$s:" CLAUDE_CONFIG_DIR 2>/dev/null)"
+        done')
+    printf 'X:\t%s── %s ──%s\n' "$C_DIM" "$name" "$C_OFF"
+    [ -z "$out" ] && { printf 'X:\t%s(no sessions)%s\n' "$C_DIM" "$C_OFF"; return; }
+    while IFS='|' read -r s attached env; do
+        [ "$attached" != 0 ] && attached=' (attached)' || attached=''
+        case "$env" in
+            *claude-personal*) printf 'R:%s:%s\t%s%-22s PERSONAL%s%s%s%s\n' "$name" "$s" "$C_PERSONAL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *)                 printf 'R:%s:%s\t%s%-22s WORK%s%s%s%s\n' "$name" "$s" "$C_WORK" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+        esac
+    done <<<"$out"
+}
+
+# remote_sections: every remote, queried in parallel, printed in config order.
+remote_sections() {
+    local tmp name i=0
+    [ -z "${TM_REMOTES:-}" ] && return
+    tmp=$(mktemp -d)
+    for name in $(remote_names); do
+        remote_section "$name" >"$tmp/$i" &
+        i=$((i + 1))
+    done
+    wait
+    for ((n = 0; n < i; n++)); do cat "$tmp/$n"; done
+    rm -rf "$tmp"
+}
+
+# go_remote <name> <session>: attach to a session on another machine.
+go_remote() {
+    local target
+    target=$(remote_target "$1") || { echo "Can't reach $1" >&2; sleep 1.5; return; }
+    if [ -n "${TMUX:-}" ]; then
+        # A new window of its own; inside it, press the tmux prefix twice to reach the remote tmux.
+        tmux new-window -n "$1:$2" ssh -t "${SSH_OPTS[@]}" "$target" tmux attach-session -t "=$2"
+        exit 0
+    fi
+    ssh -t "${SSH_OPTS[@]}" "$target" tmux attach-session -t "=$2"
+}
+
 # account_of <session> -> personal|work
 account_of() {
     if tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=.*claude-personal'; then
@@ -34,7 +125,8 @@ go_to() {
     if [ -n "${TMUX:-}" ]; then
         exec tmux switch-client -t "=$1"
     else
-        exec tmux attach-session -t "=$1"
+        # Not exec: when you detach (prefix d) or the session ends, the menu comes back.
+        tmux attach-session -t "=$1"
     fi
 }
 
@@ -62,11 +154,16 @@ session_name() {
 # --- preview pane (fzf calls back into this script) ---------------------------------
 # Every list line is "<key><TAB><display>"; the key says what the line is:
 #   S:<session>  running session      A:<w|p|ws|ps>  new-session action
+#   R:<remote>:<session>  session on another machine (TM_REMOTES)
 #   D:<dir>      folder               T:             type a path      X:  separator
 preview() {
-    local key=$1 dir
+    local key=$1 dir rest
     case "$key" in
         S:*) tmux capture-pane -ep -t "=${key#S:}:" 2>/dev/null || echo "(this session has closed)" ;;
+        R:*)
+            rest=${key#R:}
+            rsh "${rest%%:*}" tmux capture-pane -ep -t "=${rest#*:}:" 2>/dev/null || echo "(can't reach ${rest%%:*}, or the session has closed)"
+            ;;
         A:w)  printf '%sNew Claude session — WORK account%s\n\nPick a folder next. The session is named W-<FOLDER>\nand Claude starts with Remote Control on.\n' "$C_WORK" "$C_OFF" ;;
         A:p)  printf '%sNew Claude session — PERSONAL account%s\n\nPick a folder next. The session is named P-<FOLDER>\nand Claude starts with Remote Control on.\n' "$C_PERSONAL" "$C_OFF" ;;
         A:ws) printf '%sNew shell session — WORK account%s\n\nA plain terminal, no Claude. Named W-<FOLDER>.\nRunning claude in it uses the work login.\n' "$C_WORK" "$C_OFF" ;;
@@ -93,6 +190,11 @@ label() {
             s=${key#S:}
             printf ' %s · %s · %s ' "$s" "$(tmux display-message -p -t "=$s:" '#{s|^'"$HOME"'|~|:pane_current_path}' 2>/dev/null)" \
                 "$(account_of "=$s:" | tr '[:lower:]' '[:upper:]')"
+            ;;
+        R:*)
+            rest=${key#R:}
+            printf ' %s · %s · %s ' "${rest%%:*}" "${rest#*:}" \
+                "$(rsh "${rest%%:*}" tmux display-message -p -t "=${rest#*:}:" "'#{pane_current_path}'" 2>/dev/null | sed "s|^/home/[^/]*|~|")"
             ;;
         D:*) printf ' %s ' "${key#D:}" | sed "s|$HOME|~|" ;;
         *) printf ' tm ' ;;
@@ -153,6 +255,7 @@ main_list() {
             printf 'S:%s\t%s%-22s WORK%s%s%s%s\n' "$s" "$C_WORK" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF"
         fi
     done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    remote_sections
     printf 'X:\t%s──────────────────────────────────%s\n' "$C_DIM" "$C_OFF"
     printf 'A:w\t%s+ Claude   work%s\n' "$C_WORK" "$C_OFF"
     printf 'A:p\t%s+ Claude   personal%s\n' "$C_PERSONAL" "$C_OFF"
@@ -166,6 +269,7 @@ while true; do
     key=${sel%%$'\t'*}
     case "$key" in
         S:*) go_to "${key#S:}" ;;
+        R:*) rest=${key#R:}; go_remote "${rest%%:*}" "${rest#*:}" ;;
         A:w|A:p)
             dir=$(pick_folder "$([ "$key" = A:w ] && echo 'Claude · work' || echo 'Claude · personal')") || continue
             name=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
