@@ -17,13 +17,15 @@ PERSONAL_DIR="$HOME/.claude-personal"
 
 # Same colours as the tmux status bars (tmux-account-style): blue = personal, green = work.
 if [ -t 1 ]; then
-    C_PERSONAL=$'\e[38;2;137;180;250m' C_WORK=$'\e[38;2;166;227;161m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
+    C_PERSONAL=$'\e[38;2;137;180;250m' C_WORK=$'\e[38;2;166;227;161m' C_SHELL=$'\e[38;2;147;153;178m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
 else
-    C_PERSONAL='' C_WORK='' C_DIM='' C_OFF=''
+    C_PERSONAL='' C_WORK='' C_SHELL='' C_DIM='' C_OFF=''
 fi
 
-# account_of <session> -> personal|work
+# account_of <session> -> personal|work|shell
 account_of() {
+    # Plain shell sessions (S-<FOLDER>) have no account.
+    case "$(tmux display-message -p -t "$1" '#{session_name}' 2>/dev/null)" in S-*) echo shell; return ;; esac
     if tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=.*claude-personal'; then
         echo personal
     else
@@ -105,18 +107,17 @@ main() {
         for i in "${!sessions[@]}"; do
             name=${sessions[i]}
             attached=$(tmux display-message -p -t "=$name:" '#{?session_attached,  (attached),}')
-            if [ "$(account_of "=$name:")" = personal ]; then
-                printf '  %2d) %s%-24s PERSONAL%s%s%s%s\n' "$((i + 1))" "$C_PERSONAL" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF"
-            else
-                printf '  %2d) %s%-24s WORK%s%s%s%s\n' "$((i + 1))" "$C_WORK" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF"
-            fi
+            case "$(account_of "=$name:")" in
+                personal) printf '  %2d) %s%-24s PERSONAL%s%s%s%s\n' "$((i + 1))" "$C_PERSONAL" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+                shell)    printf '  %2d) %s%-24s SHELL%s%s%s%s\n' "$((i + 1))" "$C_SHELL" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+                *)        printf '  %2d) %s%-24s WORK%s%s%s%s\n' "$((i + 1))" "$C_WORK" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            esac
         done
     fi
     echo
     echo "   ${C_WORK}w) new Claude session - work account${C_OFF}"
     echo "   ${C_PERSONAL}p) new Claude session - personal account${C_OFF}"
-    echo "  ${C_WORK}ws) new shell session - work account${C_OFF}"
-    echo "  ${C_PERSONAL}ps) new shell session - personal account${C_OFF}"
+    echo "   ${C_SHELL}s) new shell session${C_OFF}"
     echo "   q) quit"
     echo
     read -rp "Choose: " choice || exit 0
@@ -133,13 +134,9 @@ main() {
                 start_session "P-$name" "$dir" "$CLAUDE --remote-control P-$name" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR"
             fi
             ;;
-        ws|ps)
+        s)
             dir=$(pick_project); [ -z "$dir" ] && return
-            if [ "$choice" = ws ]; then
-                start_session "$(session_name W "$dir")" "$dir" ""
-            else
-                start_session "$(session_name P "$dir")" "$dir" "" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR"
-            fi
+            start_session "$(session_name S "$dir")" "$dir" ""
             ;;
         *)
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sessions[@]}" ]; then

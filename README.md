@@ -4,12 +4,13 @@ A tmux session menu for running Claude Code on two accounts (work and personal) 
 on Linux or macOS.
 
 - **`tm`** — full-screen session picker (fzf): sessions on the left, the highlighted session's
-  screen on the right. Start new Claude or shell sessions on either account, in any project.
+  screen on the right. Start new Claude sessions on either account, or plain shells, in any project.
   Opens automatically when you SSH in (handy from a phone, e.g. Termius).
 - **Two accounts at once** — the personal account lives in its own config folder
   (`CLAUDE_CONFIG_DIR=~/.claude-personal`), so both stay logged in; no logging out and in.
 - **Colour-coded** — work sessions get a green tmux status bar and `WORK` label, personal ones
-  blue and `PERSONAL`, plus a background tint.
+  blue and `PERSONAL`, plus a background tint. Plain shell sessions have no account and are grey
+  with a `SHELL` label.
 - **Survives reboots** — every session (and the Claude conversation in it, on the right account)
   is snapshotted each minute and brought back after a reboot.
 - **Remote Control on** — Claude starts with `--remote-control <session name>`, so every session
@@ -68,8 +69,8 @@ To update later: `git -C ~/Code/tm pull`. The scripts are symlinked, so that's a
 | `prefix + s` | tmux's own session list, to hop between sessions. |
 | `prefix + d` | Detach (session keeps running). If you opened it from `tm` in a plain terminal, you land back in the menu. |
 
-Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal (upper case; `-2`, `-3` added if
-taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
+Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal, `S-<FOLDER>` for plain shells
+(upper case; `-2`, `-3` added if taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
 
 ## Other machines
 
@@ -77,7 +78,7 @@ taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
 to your local ones. Add them to `~/.config/tm/config`:
 
 ```bash
-TM_REMOTES="claude-lxc=guyr@192.168.10.55,guyr@100.66.6.103"
+TM_REMOTES="lxc=me@192.0.2.10,me@lxc.example-tailnet.ts.net"
 ```
 
 Space-separated `name=target[,fallback...]` entries. The first target that answers wins, so put
@@ -89,7 +90,13 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 - Enter attaches over SSH. Inside tmux it opens a new window named `name:SESSION`; press the tmux
   prefix twice to send keys to the remote tmux (`prefix prefix d` detaches it). From a plain
   terminal there is only one tmux, so a single `prefix d` detaches and returns you to the menu.
-- Starting new sessions stays local; use the remote's own `tm` for those.
+- Each remote has a `+ new session on <name>` entry, and the bottom of the menu has
+  `+ new session locally`; both work the same way. Pick Claude (work or personal) or a shell,
+  then a folder from that machine's projects folder (its own `TM_PROJECTS_ROOT`, default `~/Code`)
+  or type a path. The session is created there with the same `W-`/`P-`/`S-<FOLDER>` naming and Remote
+  Control as a local one, then you're attached. The remote needs `claude` installed and, for
+  personal sessions, `claude-personal` logged in (`~/.claude-personal`). `tm` doesn't need to be
+  updated there.
 
 ## Files
 
@@ -124,5 +131,6 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 |---|---|---|---|
 | Work | `~/.claude` (Claude's default) | green `#a6e3a1` | `WORK` |
 | Personal | `~/.claude-personal` | blue `#89b4fa` | `PERSONAL` |
+| Shell (no account) | none | grey `#9399b2` | `SHELL` |
 
 Change the colours at the top of `bin/tmux-account-style`.

@@ -9,7 +9,16 @@ set -uo pipefail
 
 # Settings (TM_PROJECTS_ROOT) can go in ~/.config/tm/config; install.sh writes it.
 TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
-[ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
+# Account names are editable in tm's settings menu: a label shown beside sessions and a prefix
+# used when naming new ones (defaults WORK/W and PERSONAL/P).
+load_settings() {
+    unset TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX
+    [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
+    WORK_LABEL="${TM_WORK_LABEL:-WORK}" WORK_PREFIX="${TM_WORK_PREFIX:-W}"
+    PERSONAL_LABEL="${TM_PERSONAL_LABEL:-PERSONAL}" PERSONAL_PREFIX="${TM_PERSONAL_PREFIX:-P}"
+}
+load_settings
+lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
 PERSONAL_DIR="$HOME/.claude-personal"
@@ -19,11 +28,11 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
 
 # Same colours as the tmux status bars (tmux-account-style): blue = personal, green = work.
-C_PERSONAL=$'\e[38;2;137;180;250m' C_WORK=$'\e[38;2;166;227;161m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
+C_PERSONAL=$'\e[38;2;137;180;250m' C_WORK=$'\e[38;2;166;227;161m' C_SHELL=$'\e[38;2;147;153;178m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
 
 # --- remote machines ------------------------------------------------------------------
 # TM_REMOTES in the config lists other machines whose tmux sessions tm should show:
-#   TM_REMOTES="claude-lxc=guyr@192.168.10.55,guyr@100.66.6.103 other=user@host"
+#   TM_REMOTES="lxc=me@192.0.2.10,me@lxc.example-tailnet.ts.net other=user@host"
 # Space-separated "<name>=<ssh target>[,<fallback target>...]"; the first target that
 # answers wins (LAN address first, then e.g. Tailscale). Needs key-based SSH.
 TM_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tm"
@@ -64,6 +73,16 @@ rsh() {
     ssh "${SSH_OPTS[@]}" "$t" "$@"
 }
 
+# rrun <name> <script> [args...]: run a bash script (read from stdin) on the remote, with args.
+# ssh joins its arguments into one string, so each arg is quoted for the remote shell.
+rrun() {
+    local name=$1 script=$2 t q
+    shift 2
+    t=$(cat "$TM_CACHE/target-$name" 2>/dev/null) || t=$(remote_target "$name") || return 1
+    [ $# -gt 0 ] && q=$(printf '%q ' "$@")
+    ssh "${SSH_OPTS[@]}" "$t" "bash -s -- ${q:-}" <<<"$script"
+}
+
 # remote_section <name>: the menu lines for one remote.
 remote_section() {
     local name=$1 target out s attached env
@@ -76,14 +95,16 @@ remote_section() {
             printf "%s|%s|%s\n" "$s" "$a" "$(tmux show-environment -t "=$s:" CLAUDE_CONFIG_DIR 2>/dev/null)"
         done')
     printf 'X:\t%s── %s ──%s\n' "$C_DIM" "$name" "$C_OFF"
-    [ -z "$out" ] && { printf 'X:\t%s(no sessions)%s\n' "$C_DIM" "$C_OFF"; return; }
+    [ -z "$out" ] && printf 'X:\t%s(no sessions)%s\n' "$C_DIM" "$C_OFF"
     while IFS='|' read -r s attached env; do
         [ "$attached" != 0 ] && attached=' (attached)' || attached=''
-        case "$env" in
-            *claude-personal*) printf 'R:%s:%s\t%s%-22s PERSONAL%s%s%s%s\n' "$name" "$s" "$C_PERSONAL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
-            *)                 printf 'R:%s:%s\t%s%-22s WORK%s%s%s%s\n' "$name" "$s" "$C_WORK" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+        case "$s$env" in
+            S-*) printf 'R:%s:%s\t%s%-22s SHELL%s%s%s%s\n' "$name" "$s" "$C_SHELL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *claude-personal*) printf 'R:%s:%s\t%s%-22s %s%s%s%s%s\n' "$name" "$s" "$C_PERSONAL" "$s" "$PERSONAL_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *)                 printf 'R:%s:%s\t%s%-22s %s%s%s%s%s\n' "$name" "$s" "$C_WORK" "$s" "$WORK_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
         esac
     done <<<"$out"
+    printf 'N:%s\t%s+ new session on %s%s\n' "$name" "$C_DIM" "$name" "$C_OFF"
 }
 
 # remote_sections: every remote, queried in parallel, printed in config order.
@@ -112,8 +133,10 @@ go_remote() {
     ssh -t "${SSH_OPTS[@]}" "$target" tmux attach-session -t "=$2"
 }
 
-# account_of <session> -> personal|work
+# account_of <session> -> personal|work|shell
 account_of() {
+    # Plain shell sessions (S-<FOLDER>) have no account.
+    case "$(tmux display-message -p -t "$1" '#{session_name}' 2>/dev/null)" in S-*) echo shell; return ;; esac
     if tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null | grep -q '^CLAUDE_CONFIG_DIR=.*claude-personal'; then
         echo personal
     else
@@ -153,7 +176,7 @@ session_name() {
 
 # --- preview pane (fzf calls back into this script) ---------------------------------
 # Every list line is "<key><TAB><display>"; the key says what the line is:
-#   S:<session>  running session      A:<w|p|ws|ps>  new-session action
+#   S:<session>  running session      N:<remote|empty>  new session (locally if empty)
 #   R:<remote>:<session>  session on another machine (TM_REMOTES)
 #   D:<dir>      folder               T:             type a path      X:  separator
 preview() {
@@ -164,10 +187,6 @@ preview() {
             rest=${key#R:}
             rsh "${rest%%:*}" tmux capture-pane -ep -t "=${rest#*:}:" 2>/dev/null || echo "(can't reach ${rest%%:*}, or the session has closed)"
             ;;
-        A:w)  printf '%sNew Claude session — WORK account%s\n\nPick a folder next. The session is named W-<FOLDER>\nand Claude starts with Remote Control on.\n' "$C_WORK" "$C_OFF" ;;
-        A:p)  printf '%sNew Claude session — PERSONAL account%s\n\nPick a folder next. The session is named P-<FOLDER>\nand Claude starts with Remote Control on.\n' "$C_PERSONAL" "$C_OFF" ;;
-        A:ws) printf '%sNew shell session — WORK account%s\n\nA plain terminal, no Claude. Named W-<FOLDER>.\nRunning claude in it uses the work login.\n' "$C_WORK" "$C_OFF" ;;
-        A:ps) printf '%sNew shell session — PERSONAL account%s\n\nA plain terminal, no Claude. Named P-<FOLDER>.\nRunning claude in it uses the personal login.\n' "$C_PERSONAL" "$C_OFF" ;;
         D:*)
             dir=${key#D:}
             git -C "$dir" log -1 --format="%C(yellow)%D%C(reset)  %s  %C(dim)%cr%C(reset)" --color=always 2>/dev/null && echo
@@ -179,6 +198,18 @@ preview() {
             fi
             ;;
         T:) echo "Type any folder path, with Tab completion. ~ works." ;;
+        N:*) printf 'Start a new Claude or shell session %s.\n\nYou choose Claude (%s or %s) or a shell,\nthen a folder.\n' "$([ -n "${key#N:}" ] && echo "on ${key#N:}" || echo locally)" "$(lc "$WORK_LABEL")" "$(lc "$PERSONAL_LABEL")" ;;
+        G:wl|G:pl) printf 'The name shown beside sessions of this account, in the menu and the tmux\nstatus bar. Upper-cased. Existing sessions keep their names.\n' ;;
+        G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
+        G:r) printf 'Back to WORK / W and PERSONAL / P.\n' ;;
+        K:cw) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_WORK" "$WORK_LABEL" "$C_OFF" "$WORK_PREFIX" ;;
+        K:cp) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_PERSONAL" "$PERSONAL_LABEL" "$C_OFF" "$PERSONAL_PREFIX" ;;
+        K:s)  printf '%sNew shell session%s\n\nA plain terminal, no Claude. Named S-<FOLDER>.\n' "$C_SHELL" "$C_OFF" ;;
+        RD:*)
+            rest=${key#RD:}
+            rrun "${rest%%:*}" 'git -C "$1" log -1 --format="%C(yellow)%D%C(reset)  %s  %C(dim)%cr%C(reset)" --color=always 2>/dev/null && echo
+ls -p "$1" 2>/dev/null | head -200' "${rest#*:}" 2>/dev/null || echo "(can't reach ${rest%%:*})"
+            ;;
     esac
 }
 
@@ -197,6 +228,7 @@ label() {
                 "$(rsh "${rest%%:*}" tmux display-message -p -t "=${rest#*:}:" "'#{pane_current_path}'" 2>/dev/null | sed "s|^/home/[^/]*|~|")"
             ;;
         D:*) printf ' %s ' "${key#D:}" | sed "s|$HOME|~|" ;;
+        RD:*) rest=${key#RD:}; printf ' %s:%s ' "${rest%%:*}" "${rest#*:}" ;;
         *) printf ' tm ' ;;
     esac
 }
@@ -245,47 +277,155 @@ pick_folder() {
     done
 }
 
+# remote_pick_folder <name> <title>: like pick_folder, for a folder on the remote machine.
+remote_pick_folder() {
+    local name=$1 sel path root home
+    home=$(rrun "$name" 'echo "$HOME"') || { echo "Can't reach $name" >&2; sleep 1.5; return 1; }
+    root=$(rrun "$name" 'f="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"; [ -f "$f" ] && . "$f"; echo "${TM_PROJECTS_ROOT:-$HOME/Code}"')
+    while true; do
+        sel=$(
+            {
+                printf 'RD:%s:%s\t%s~  home folder%s\n' "$name" "$home" "$C_DIM" "$C_OFF"
+                printf 'T:\t%s✎  type a path…%s\n' "$C_DIM" "$C_OFF"
+                rrun "$name" 'for p in "$1"/*/; do [ -d "$p" ] && basename "$p"; done | sort -f' "$root" 2>/dev/null |
+                    while IFS= read -r p; do printf 'RD:%s:%s/%s\t%s\n' "$name" "$root" "$p" "$p"; done
+            } | fzf "${FZF_OPTS[@]}" --border-label=" $2 · folder on $name ($root) " \
+                    --header='Enter select · Esc back'
+        ) || return 1
+        case "${sel%%$'\t'*}" in
+            RD:*) sel=${sel%%$'\t'*}; sel=${sel#RD:}; echo "${sel#*:}"; return 0 ;;
+            T:)
+                read -erp "Path on $name (Enter = back): " path || return 1
+                [ -z "$path" ] && continue
+                if sel=$(rrun "$name" 'p=$1; case "$p" in "~"*) p="$HOME${p#"~"}" ;; esac; cd "$p" 2>/dev/null && pwd' "$path") && [ -n "$sel" ]; then
+                    echo "$sel"; return 0
+                fi
+                echo "No such folder on $name: $path" >&2; sleep 1.5
+                ;;
+        esac
+    done
+}
+
+# new_session <remote name | "" for this machine>: choose Claude (work/personal) or a shell,
+# then a folder, then start the session there and attach to it.
+new_session() {
+    local name=${1:-} kind sel dir title session base where=locally
+    [ -n "$name" ] && where="on $name"
+    sel=$(printf 'K:cw\t%s+ Claude   %s%s\nK:cp\t%s+ Claude   %s%s\nK:s\t%s+ Shell%s\n' \
+              "$C_WORK" "$(lc "$WORK_LABEL")" "$C_OFF" "$C_PERSONAL" "$(lc "$PERSONAL_LABEL")" "$C_OFF" "$C_SHELL" "$C_OFF" |
+          fzf "${FZF_OPTS[@]}" --border-label=" new session $where " --header='Enter select · Esc back') || return 0
+    kind=${sel%%$'\t'*}; kind=${kind#K:}
+    case "$kind" in
+        cw) title="Claude · $(lc "$WORK_LABEL")" ;;   cp) title="Claude · $(lc "$PERSONAL_LABEL")" ;;
+        s)  title='Shell' ;;
+        *) return 0 ;;
+    esac
+    if [ -z "$name" ]; then
+        dir=$(pick_folder "$title") || return 0
+        base=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
+        case "$kind" in
+            cw) start_session "$WORK_PREFIX-$base" "$dir" "$CLAUDE --remote-control $WORK_PREFIX-$base" ;;
+            cp) start_session "$PERSONAL_PREFIX-$base" "$dir" "$CLAUDE --remote-control $PERSONAL_PREFIX-$base" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR" ;;
+            s)  start_session "$(session_name S "$dir")" "$dir" "" ;;
+        esac
+        return 0
+    fi
+    dir=$(remote_pick_folder "$name" "$title") || return 0
+    # args: kind (c|s), account (work|personal|shell), folder, name prefix. Prints the session name.
+    session=$(rrun "$name" '
+kind=$1 acct=$2 dir=$3
+base=$(basename "$dir" | tr ".: " "---" | tr "[:lower:]" "[:upper:]")
+case "$acct" in shell) base="S-$base" ;; *) base="$4-$base" ;; esac
+claude=$(command -v claude || echo "$HOME/.local/bin/claude")
+name=$base
+if [ "$kind" = s ]; then
+    n=1; while tmux has-session -t "=$name" 2>/dev/null; do n=$((n + 1)); name="$base-$n"; done
+fi
+if ! tmux has-session -t "=$name" 2>/dev/null; then
+    args=(new-session -d -s "$name" -c "$dir")
+    [ "$acct" = personal ] && args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal")
+    [ "$kind" = c ] && args+=("$claude --remote-control $name; exec bash")
+    tmux -u "${args[@]}" || exit 1
+fi
+echo "$name"' "${kind:0:1}" "$(case "$kind" in cp) echo personal ;; s) echo shell ;; *) echo work ;; esac)" "$dir" "$([ "$kind" = cp ] && echo "$PERSONAL_PREFIX" || echo "$WORK_PREFIX")") || { echo "Couldn't start the session on $name" >&2; sleep 2; return 0; }
+    go_remote "$name" "$session"
+}
+
 main_list() {
     local s attached
+    printf 'X:\t%s── local ──%s\n' "$C_DIM" "$C_OFF"
     while IFS= read -r s; do
         attached=$(tmux display-message -p -t "=$s:" '#{?session_attached, (attached),}')
-        if [ "$(account_of "=$s:")" = personal ]; then
-            printf 'S:%s\t%s%-22s PERSONAL%s%s%s%s\n' "$s" "$C_PERSONAL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF"
-        else
-            printf 'S:%s\t%s%-22s WORK%s%s%s%s\n' "$s" "$C_WORK" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF"
-        fi
+        case "$(account_of "=$s:")" in
+            personal) printf 'S:%s\t%s%-22s %s%s%s%s%s\n' "$s" "$C_PERSONAL" "$s" "$PERSONAL_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            shell)    printf 'S:%s\t%s%-22s SHELL%s%s%s%s\n' "$s" "$C_SHELL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *)        printf 'S:%s\t%s%-22s %s%s%s%s%s\n' "$s" "$C_WORK" "$s" "$WORK_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+        esac
     done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    printf 'N:\t%s+ new session locally%s\n' "$C_DIM" "$C_OFF"
     remote_sections
     printf 'X:\t%s──────────────────────────────────%s\n' "$C_DIM" "$C_OFF"
-    printf 'A:w\t%s+ Claude   work%s\n' "$C_WORK" "$C_OFF"
-    printf 'A:p\t%s+ Claude   personal%s\n' "$C_PERSONAL" "$C_OFF"
-    printf 'A:ws\t%s+ Shell    work%s\n' "$C_WORK" "$C_OFF"
-    printf 'A:ps\t%s+ Shell    personal%s\n' "$C_PERSONAL" "$C_OFF"
+    printf 'G:\t%s⚙  settings%s\n' "$C_DIM" "$C_OFF"
+}
+
+# set_config <KEY> [value]: write KEY="value" into the config file (no value removes it).
+set_config() {
+    mkdir -p "$(dirname "$TM_CONFIG")"; touch "$TM_CONFIG"
+    { grep -v "^$1=" "$TM_CONFIG" || true; [ -n "${2:-}" ] && printf '%s="%s"\n' "$1" "$2"; } >"$TM_CONFIG.tmp"
+    mv "$TM_CONFIG.tmp" "$TM_CONFIG"
+}
+
+# ask_setting <KEY> <what> <current> <label|prefix> [other prefix]
+ask_setting() {
+    local v
+    read -erp "$2 [$3] (Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    v=$(echo "$v" | tr '[:lower:]' '[:upper:]')
+    if [ "$4" = label ]; then
+        [[ "$v" =~ ^[A-Z0-9][A-Z0-9\ _-]{0,15}$ ]] || { echo "Use up to 16 letters, digits, spaces, - or _." >&2; sleep 2; return 0; }
+    else
+        [[ "$v" =~ ^[A-Z0-9]{1,6}$ ]] || { echo "Use 1-6 letters or digits." >&2; sleep 2; return 0; }
+        [ "$v" = S ] && { echo "S is taken by shell sessions." >&2; sleep 2; return 0; }
+        [ "$v" = "$5" ] && { echo "That prefix is already used by the other account." >&2; sleep 2; return 0; }
+    fi
+    set_config "$1" "$v"
+    load_settings
+    # Restyle running local sessions so their status-bar label follows.
+    tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all
+}
+
+settings_menu() {
+    local sel
+    while true; do
+        load_settings
+        sel=$(printf 'G:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset names to defaults%s\n' \
+                  "$C_WORK" "work account name" "$WORK_LABEL" "$C_OFF" "$C_WORK" "work session prefix" "$WORK_PREFIX" "$C_OFF" \
+                  "$C_PERSONAL" "personal account name" "$PERSONAL_LABEL" "$C_OFF" "$C_PERSONAL" "personal session prefix" "$PERSONAL_PREFIX" "$C_OFF" \
+                  "$C_DIM" "$C_OFF" |
+              fzf "${FZF_OPTS[@]}" --border-label=' tm · settings ' --header='Enter edit · Esc back') || return 0
+        case "${sel%%$'\t'*}" in
+            G:wl) ask_setting TM_WORK_LABEL 'Work account name' "$WORK_LABEL" label ;;
+            G:wp) ask_setting TM_WORK_PREFIX 'Work session prefix' "$WORK_PREFIX" prefix "$PERSONAL_PREFIX" ;;
+            G:pl) ask_setting TM_PERSONAL_LABEL 'Personal account name' "$PERSONAL_LABEL" label ;;
+            G:pp) ask_setting TM_PERSONAL_PREFIX 'Personal session prefix' "$PERSONAL_PREFIX" prefix "$WORK_PREFIX" ;;
+            G:r)
+                for k in TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX; do set_config "$k"; done
+                load_settings
+                tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all
+                ;;
+        esac
+    done
 }
 
 while true; do
+    load_settings
     sel=$(main_list | fzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' \
               --header='Enter open · Esc quit · ^R refresh') || exit 0
     key=${sel%%$'\t'*}
     case "$key" in
         S:*) go_to "${key#S:}" ;;
         R:*) rest=${key#R:}; go_remote "${rest%%:*}" "${rest#*:}" ;;
-        A:w|A:p)
-            dir=$(pick_folder "$([ "$key" = A:w ] && echo 'Claude · work' || echo 'Claude · personal')") || continue
-            name=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
-            if [ "$key" = A:w ]; then
-                start_session "W-$name" "$dir" "$CLAUDE --remote-control W-$name"
-            else
-                start_session "P-$name" "$dir" "$CLAUDE --remote-control P-$name" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR"
-            fi
-            ;;
-        A:ws|A:ps)
-            dir=$(pick_folder "$([ "$key" = A:ws ] && echo 'Shell · work' || echo 'Shell · personal')") || continue
-            if [ "$key" = A:ws ]; then
-                start_session "$(session_name W "$dir")" "$dir" ""
-            else
-                start_session "$(session_name P "$dir")" "$dir" "" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR"
-            fi
-            ;;
+        N:*) new_session "${key#N:}" ;;
+        G:*) settings_menu ;;
     esac
 done
