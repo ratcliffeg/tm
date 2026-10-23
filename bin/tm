@@ -120,13 +120,13 @@ pick_folder() {
     while true; do
         sel=$(
             {
-                # current folder first so it is the default pick; home only when it differs
+                # current folder first (the default pick), then type-a-path; home only when it differs
                 printf 'D:%s\t%s.  current folder (%s)%s\n' "$PWD" "$C_DIM" "${PWD/#$HOME/\~}" "$C_OFF"
+                printf 'T:\t%s✎  type a path…%s\n' "$C_DIM" "$C_OFF"
                 [ "$PWD" != "$HOME" ] && printf 'D:%s\t%s~  home folder%s\n' "$HOME" "$C_DIM" "$C_OFF"
                 # (no find -printf on macOS)
                 for p in "$PROJECTS_ROOT"/*/; do [ -d "$p" ] && basename "$p"; done | sort -f |
                     while IFS= read -r p; do printf 'D:%s\t%s\n' "$PROJECTS_ROOT/$p" "$p"; done
-                printf 'T:\t%s✎  type a path…%s\n' "$C_DIM" "$C_OFF"
             } | fzf "${FZF_OPTS[@]}" --border-label=" $1 · choose a folder " \
                     --header='Enter select · Esc back'
         ) || return 1
