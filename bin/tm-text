@@ -129,6 +129,7 @@ main() {
     echo "   ${C_LOCAL}l) new Claude session - local model${C_OFF}"
     echo "   ${C_CODEX}x) new Codex session${C_OFF}"
     echo "   ${C_SHELL}s) new shell session${C_OFF}"
+    echo "   c) close a session"
     echo "   q) quit"
     echo
     read -rp "Choose: " choice || exit 0
@@ -159,6 +160,14 @@ main() {
         s)
             dir=$(pick_project); [ -z "$dir" ] && return
             start_session "$(session_name S "$dir")" "$dir" ""
+            ;;
+        c)
+            read -rp "Close which session (number, Enter = back): " choice || return
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sessions[@]}" ]; then
+                name=${sessions[choice - 1]}
+                read -rp "Close $name? Claude and anything else running in it stop. [y/N] " choice || return
+                if [ "$choice" = y ] || [ "$choice" = Y ]; then tmux kill-session -t "=$name"; fi
+            fi
             ;;
         *)
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sessions[@]}" ]; then

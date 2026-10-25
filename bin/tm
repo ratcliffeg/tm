@@ -712,11 +712,33 @@ settings_menu() {
     done
 }
 
+# close_session <key>: end a session (S:<session> or R:<remote>:<session>) after a y/N check.
+close_session() {
+    local key=$1 where="" s ans
+    case "$key" in
+        S:*) s=${key#S:} ;;
+        R:*) s=${key#R:}; where=${s%%:*}; s=${s#*:} ;;
+        *) return 0 ;;
+    esac
+    [ -z "$where" ] && [ -n "${TMUX:-}" ] && [ "$(tmux display-message -p '#{session_name}')" = "$s" ] &&
+        echo "That's the session tm is running in; closing it closes tm too."
+    read -rp "Close $s${where:+ on $where}? Claude and anything else running in it stop. [y/N] " ans || return 0
+    [ "$ans" = y ] || [ "$ans" = Y ] || return 0
+    if [ -n "$where" ]; then
+        rsh "$where" tmux kill-session -t "=$s" || { echo "Couldn't close $s on $where" >&2; sleep 2; }
+    else
+        tmux kill-session -t "=$s"
+    fi
+}
+
 while true; do
     load_settings
-    sel=$(main_list | fzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' \
-              --header='Enter open · Esc quit · ^R refresh') || exit 0
+    # --expect: the first line of fzf's output is the key that ended it (empty for Enter).
+    sel=$(main_list | fzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' --expect=ctrl-x \
+              --header='Enter open · ^X close · Esc quit · ^R refresh') || exit 0
+    pressed=${sel%%$'\n'*}; sel=${sel#*$'\n'}
     key=${sel%%$'\t'*}
+    if [ "$pressed" = ctrl-x ]; then close_session "$key"; continue; fi
     case "$key" in
         S:*) go_to "${key#S:}" ;;
         R:*) rest=${key#R:}; go_remote "${rest%%:*}" "${rest#*:}" ;;
