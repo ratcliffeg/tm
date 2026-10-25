@@ -127,8 +127,10 @@ Tailscale name or address, which only works if Strata listens on more than 127.0
 config file readable only by you, as it holds the key. Changes apply to sessions started afterwards.
 
 The settings menu takes a bare Tailscale name or address too, and adds `http://` and port 8080.
-New local-model sessions on a remote machine take the address from the machine you run `tm`
-on; after a reboot that machine uses its own settings (or the defaults).
+A local-model session started on a remote machine uses that machine's own settings when tm is
+installed there (set them in its own `⚙ settings`), and the settings of the machine you run `tm`
+on when it isn't. Each machine needs the address as it sees Strata: `127.0.0.1` on the Strata
+machine, its Tailscale address everywhere else.
 
 ## Other machines
 

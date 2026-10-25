@@ -370,7 +370,7 @@ new_session() {
         echo "Codex isn't installed on this machine." >&2; sleep 2; return 0
     fi
     # Strata's address, model and token, put on the session so a plain `claude` in it (after
-    # Claude exits) still talks to Strata. Taken from this machine's settings, remote or not.
+    # Claude exits) still talks to Strata. A remote with tm installed uses its own instead.
     if [ "$kind" = cl ]; then while IFS= read -r e; do env+=("$e"); done < <(local_env); fi
     if [ -z "$name" ]; then
         dir=$(pick_folder "$title") || return 0
@@ -404,7 +404,14 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
     [ "$acct" = personal ] && args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal")
     if [ "$acct" = local ]; then
         args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-local")
-        for e in "${@:5}"; do args+=(-e "$e"); done
+        # Its own Strata settings if tm is installed there (an address like 127.0.0.1 only
+        # means the same thing on the machine it was set on); otherwise the ones passed in.
+        cl=$(command -v claude-local || echo "$HOME/.local/bin/claude-local")
+        if [ -x "$cl" ]; then
+            while IFS= read -r e; do args+=(-e "$e"); done < <("$cl" --env)
+        else
+            for e in "${@:5}"; do args+=(-e "$e"); done
+        fi
         args+=("$claude; exec bash")
     elif [ "$kind" = c ]; then
         args+=("$claude --remote-control $name; exec bash")
