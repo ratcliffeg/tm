@@ -103,21 +103,28 @@ another machine, reached over Tailscale, instead of Anthropic. `claude-local` do
 without tmux. Sessions:
 
 - use their own config folder, `~/.claude-local`, so they don't touch the work or personal logins;
-- send every request (including background ones) to `ANTHROPIC_BASE_URL`, the Strata address. All
-  model slots get the same name: Strata ignores it and runs whatever model it has loaded (the one
-  Strata was started with, e.g. `--family coder --model iq2_xs`), but Claude Code wants a real
-  Anthropic model name;
-- run without Remote Control, and with Claude Code's non-essential traffic (telemetry, error
-  reports, update checks) turned off;
+- send every request (including background ones) to `ANTHROPIC_BASE_URL`, the Strata address,
+  with Strata's API key and its name for the loaded model in every model slot;
+- cap requests at 131072 context and 4096 output tokens, as Strata suggests (Claude Code otherwise
+  asks for more output than Strata returns);
+- run without Remote Control, and with Claude Code's telemetry, error reports and auto-updates
+  turned off;
 - come back after a reboot on the same Strata address.
 
 Set it under `⚙ settings`, or in `~/.config/tm/config`:
 
 ```bash
 TM_LOCAL_URL="http://7of9-kubuntu.pygmy-parore.ts.net:8080"   # the default; Claude Code adds /v1/messages
-TM_LOCAL_MODEL="claude-3-5-sonnet-latest"                      # the default
-TM_LOCAL_TOKEN="strata"                                        # the default; only matters if Strata checks it
+TM_LOCAL_TOKEN="sk-strata-..."                                 # Strata's API key (required)
+TM_LOCAL_MODEL="qwen3.8-flash-next-coder-iq1_m"                # the default; Strata's model name
+TM_LOCAL_MAX_CONTEXT_TOKENS=131072                             # the default
+TM_LOCAL_MAX_OUTPUT_TOKENS=4096                                # the default
 ```
+
+The address, model and API key are all shown in Strata's settings for connecting Claude. On the
+machine Strata runs on, the address is `http://127.0.0.1:8080`; from another machine use its
+Tailscale name or address, which only works if Strata listens on more than 127.0.0.1. tm keeps the
+config file readable only by you, as it holds the key. Changes apply to sessions started afterwards.
 
 The settings menu takes a bare Tailscale name or address too, and adds `http://` and port 8080.
 New local-model sessions on a remote machine take the address from the machine you run `tm`

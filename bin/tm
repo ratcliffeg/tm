@@ -21,7 +21,7 @@ load_settings() {
     unset TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX TM_REMOTES TM_PROJECTS_ROOT \
           TM_WORK_COLOUR TM_WORK_TINT TM_PERSONAL_COLOUR TM_PERSONAL_TINT \
           TM_SHELL_COLOUR TM_SHELL_TINT TM_CODEX_COLOUR TM_CODEX_TINT TM_LOCAL_COLOUR TM_LOCAL_TINT \
-          TM_LOCAL_URL TM_LOCAL_MODEL TM_LOCAL_TOKEN
+          TM_LOCAL_URL TM_LOCAL_MODEL TM_LOCAL_TOKEN TM_LOCAL_MAX_CONTEXT_TOKENS TM_LOCAL_MAX_OUTPUT_TOKENS
     [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
     WORK_LABEL="${TM_WORK_LABEL:-WORK}" WORK_PREFIX="${TM_WORK_PREFIX:-W}"
     PERSONAL_LABEL="${TM_PERSONAL_LABEL:-PERSONAL}" PERSONAL_PREFIX="${TM_PERSONAL_PREFIX:-P}"
@@ -228,8 +228,8 @@ preview() {
         G:r) printf 'Back to WORK / W and PERSONAL / P.\n' ;;
         G:cl) printf 'The status-bar colour and the dark background tint for work, personal, shell,\nCodex and local-model sessions. Set a bar colour and the tint follows (or set it yourself).\n' ;;
         G:lu) printf 'Where the Strata server is: a Tailscale name or address, optionally with a\nport, or a full URL. A bare name gets http:// and port 8080.\nClaude Code adds /v1/messages itself.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
-        G:lm) printf 'The model name local sessions send. Strata ignores it and uses the model it\nhas loaded, but Claude Code wants a real Anthropic name. Used for background\ncalls too.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p')" ;;
-        G:lt) printf 'The token local sessions send to Strata. Only matters if Strata checks one;\nanything does otherwise. Default: strata\n' ;;
+        G:lm) printf 'The model name local sessions send: Strata'"'"'s name for the model it has\nloaded (it shows it in its Claude connection settings). Used for background\ncalls too.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p')" ;;
+        G:lt) printf 'Strata'"'"'s API key (sk-strata-...), from its Claude connection settings.\nKept in %s, readable only by you.\n' "$(echo "$TM_CONFIG" | sed "s|^$HOME|~|")" ;;
         G:lx) printf 'Check that the Strata server answers at the address above.\n' ;;
         Q:r) printf 'Back to the built-in colours.\n' ;;
         Q:*)
@@ -439,6 +439,8 @@ main_list() {
 set_config() {
     mkdir -p "$(dirname "$TM_CONFIG")"; touch "$TM_CONFIG"
     { grep -v "^$1=" "$TM_CONFIG" || true; [ -n "${2:-}" ] && printf '%s="%s"\n' "$1" "$2"; } >"$TM_CONFIG.tmp"
+    # It can hold Strata's API key.
+    chmod 600 "$TM_CONFIG.tmp"
     mv "$TM_CONFIG.tmp" "$TM_CONFIG"
 }
 
