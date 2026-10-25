@@ -34,4 +34,4 @@ vars=(
 )
 if [ "${1:-}" = --env ]; then printf '%s\n' "${vars[@]}"; exit 0; fi
 export CLAUDE_CONFIG_DIR="$HOME/.claude-local" "${vars[@]}"
-exec claude "$@"
+exec "$(command -v claude || echo "$HOME/.local/bin/claude")" "$@"
