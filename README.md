@@ -8,6 +8,8 @@ on Linux or macOS.
   Opens automatically when you SSH in (handy from a phone, e.g. Termius).
 - **Two accounts at once** — the personal account lives in its own config folder
   (`CLAUDE_CONFIG_DIR=~/.claude-personal`), so both stay logged in; no logging out and in.
+- **Local model** — Claude Code pointed at a [Strata](#local-model-strata) server on another
+  machine over Tailscale, with its own config folder (`~/.claude-local`) and a mauve `LOCAL` label.
 - **Colour-coded** — work sessions get a green tmux status bar and `WORK` label, personal ones
   blue and `PERSONAL`, plus a background tint. Plain shell sessions have no account and are grey
   with a `SHELL` label.
@@ -65,12 +67,13 @@ To update later: `git -C ~/Code/tm pull`. The scripts are symlinked, so that's a
 | `tm` | Session menu. Arrows to move, type to filter, Enter to open, Esc to quit/go back, Ctrl-R to refresh the preview. |
 | `tmux-personal` | New tmux session with Claude on the personal account, in the current folder. |
 | `claude-personal` | Claude on the personal account, right here (no tmux). |
+| `claude-local` | Claude on the local model (Strata), right here (no tmux). |
 | `prefix + P` | Inside tmux: new window with personal-account Claude in the current folder. |
 | `prefix + s` | tmux's own session list, to hop between sessions. |
 | `prefix + d` | Detach (session keeps running). If you opened it from `tm` in a plain terminal, you land back in the menu. |
 
-Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal, `S-<FOLDER>` for plain shells,
-`CX-<FOLDER>` for Codex (upper case; `-2`, `-3` added if taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
+Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal, `L-<FOLDER>` for the local
+model, `S-<FOLDER>` for plain shells, `CX-<FOLDER>` for Codex (upper case; `-2`, `-3` added if taken). Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
 
 ## Settings
 
@@ -80,15 +83,45 @@ Session names: `W-<FOLDER>` for work, `P-<FOLDER>` for personal, `S-<FOLDER>` fo
   a connection test and tells you what's wrong (unreachable, key not accepted, new host key to
   trust).
 - **projects folder** — the folder new sessions pick a project from.
-- **colours** — the status-bar colour and dark background tint for work, personal, shell and
-  Codex sessions, as `#rrggbb`. Set a bar colour and the tint follows (15% of it); type `auto`
+- **local model address, name and token** — where the Strata server is and what to send it (see
+  [Local model](#local-model-strata)), plus a connection test.
+- **colours** — the status-bar colour and dark background tint for work, personal, local-model,
+  shell and Codex sessions, as `#rrggbb`. Set a bar colour and the tint follows (15% of it); type `auto`
   on a tint to go back to that. Running sessions on this machine are restyled straight away.
   A remote machine uses its own colour settings.
 - **account names and prefixes** — what the work and personal accounts are called in the menu and
   status bar, and how new sessions are named (default `WORK`/`W` and `PERSONAL`/`P`; existing
-  sessions keep their names). Plain shells are always `S-<FOLDER>` / `SHELL`, and Codex sessions `CX-<FOLDER>` / `CODEX`.
+  sessions keep their names). Plain shells are always `S-<FOLDER>` / `SHELL`, Codex sessions
+  `CX-<FOLDER>` / `CODEX`, and local-model sessions `L-<FOLDER>` / `LOCAL`.
 
 Everything is stored in `~/.config/tm/config`, so you can also edit it by hand.
+
+## Local model (Strata)
+
+`+ Claude   local model` in the new-session menu starts Claude Code against a Strata server on
+another machine, reached over Tailscale, instead of Anthropic. `claude-local` does the same
+without tmux. Sessions:
+
+- use their own config folder, `~/.claude-local`, so they don't touch the work or personal logins;
+- send every request (including background ones) to `ANTHROPIC_BASE_URL`, the Strata address. All
+  model slots get the same name: Strata ignores it and runs whatever model it has loaded (the one
+  Strata was started with, e.g. `--family coder --model iq2_xs`), but Claude Code wants a real
+  Anthropic model name;
+- run without Remote Control, and with Claude Code's non-essential traffic (telemetry, error
+  reports, update checks) turned off;
+- come back after a reboot on the same Strata address.
+
+Set it under `⚙ settings`, or in `~/.config/tm/config`:
+
+```bash
+TM_LOCAL_URL="http://7of9-kubuntu.pygmy-parore.ts.net:8080"   # the default; Claude Code adds /v1/messages
+TM_LOCAL_MODEL="claude-3-5-sonnet-latest"                      # the default
+TM_LOCAL_TOKEN="strata"                                        # the default; only matters if Strata checks it
+```
+
+The settings menu takes a bare Tailscale name or address too, and adds `http://` and port 8080.
+New local-model sessions on a remote machine take the address from the machine you run `tm`
+on; after a reboot that machine uses its own settings (or the defaults).
 
 ## Other machines
 
@@ -111,7 +144,7 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 - Each remote has a `+ new session on <name>` entry, and the bottom of the menu has
   `+ new session locally`; both work the same way. Pick Claude (work or personal) or a shell,
   then a folder from that machine's projects folder (its own `TM_PROJECTS_ROOT`, default `~/Code`)
-  or type a path. The session is created there with the same `W-`/`P-`/`S-<FOLDER>` naming and Remote
+  or type a path. The session is created there with the same `W-`/`P-`/`L-`/`S-<FOLDER>` naming and Remote
   Control as a local one, then you're attached. The remote needs `claude` installed and, for
   personal sessions, `claude-personal` logged in (`~/.claude-personal`). `tm` doesn't need to be
   updated there.
@@ -124,6 +157,7 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 | `bin/tm-text` | numbered text menu (fallback) |
 | `bin/tmux-personal` | new personal-account tmux session |
 | `bin/claude-personal` | personal-account Claude |
+| `bin/claude-local` | Claude on the local model (Strata); `--env` prints its settings for tm |
 | `bin/tmux-account-style` | colours sessions/windows by account (called by tmux hooks) |
 | `bin/tmux-save`, `bin/tmux-restore` | snapshot / restore sessions and their Claude conversations |
 | `tmux/tm.conf` | tmux hooks and the `prefix + P` binding |
@@ -154,6 +188,7 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 | Personal | `~/.claude-personal` | blue `#89b4fa` | `PERSONAL` |
 | Shell (no account) | none | grey `#9399b2` | `SHELL` |
 | Codex (no account split) | `~/.codex` | orange `#fab387` | `CODEX` |
+| Local model (Strata) | `~/.claude-local` | mauve `#cba6f7` | `LOCAL` |
 
 Change the colours under `⚙ settings` → colours (the built-in defaults are at the top of
 `bin/tmux-account-style`).

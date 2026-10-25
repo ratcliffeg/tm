@@ -21,8 +21,8 @@ if ! tmux ls >/dev/null 2>&1; then
   exit 0
 fi
 
-# Config dirs to look in: the default work account, then the personal account.
-config_dirs=("$HOME/.claude" "$HOME/.claude-personal")
+# Config dirs to look in: the default work account, the personal account, then the local model.
+config_dirs=("$HOME/.claude" "$HOME/.claude-personal" "$HOME/.claude-local")
 
 # Find a claude process under $1 (the pane's shell) and print its conversation ID
 # and config dir (empty for the default ~/.claude), tab-separated.
