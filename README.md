@@ -64,7 +64,7 @@ To update later: `git -C ~/Code/tm pull`. The scripts are symlinked, so that's a
 
 | | |
 |---|---|
-| `tm` | Session menu. Arrows to move, type to filter, Enter to open, Ctrl-X to close the highlighted session (asks first; works on remote sessions too), Esc to quit/go back, Ctrl-R to refresh the preview. |
+| `tm` | Session menu. Arrows to move, type to filter, Enter to open, Ctrl-X to close the highlighted session (asks first; works on remote sessions too), `✕ stop all local sessions` (under the local sessions) to close every one on this machine (asks first), Esc to quit/go back, Ctrl-R to refresh the preview. |
 | `tmux-personal` | New tmux session with Claude on the personal account, in the current folder. |
 | `claude-personal` | Claude on the personal account, right here (no tmux). |
 | `claude-local` | Claude on the local model (Strata), right here (no tmux). |

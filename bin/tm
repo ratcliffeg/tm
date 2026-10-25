@@ -203,6 +203,7 @@ session_name() {
 #   S:<session>  running session      N:<remote|empty>  new session (locally if empty)
 #   R:<remote>:<session>  session on another machine (TM_REMOTES)
 #   D:<dir>      folder               T:             type a path      X:  separator
+#   A:           stop every local session
 preview() {
     local key=$1 dir rest k pre bn tn
     case "$key" in
@@ -222,6 +223,7 @@ preview() {
             fi
             ;;
         T:) echo "Type any folder path, with Tab completion. ~ works." ;;
+        A:) printf 'Stop every tmux session on this machine (%s), and Claude and anything\nelse running in them. Asks first. Sessions on other machines keep running.\n\nThey won'"'"'t come back after a reboot either.\n' "$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')" ;;
         N:*) printf 'Start a new Claude or shell session %s.\n\nYou choose Claude (%s, %s or local model), Codex\nor a shell, then a folder.\n' "$([ -n "${key#N:}" ] && echo "on ${key#N:}" || echo locally)" "$(lc "$WORK_LABEL")" "$(lc "$PERSONAL_LABEL")" ;;
         G:wl|G:pl) printf 'The name shown beside sessions of this account, in the menu and the tmux\nstatus bar. Upper-cased. Existing sessions keep their names.\n' ;;
         G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
@@ -437,6 +439,7 @@ main_list() {
         esac
     done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
     printf 'N:\t%s+ new session locally%s\n' "$C_DIM" "$C_OFF"
+    tmux has-session 2>/dev/null && printf 'A:\t%s✕ stop all local sessions%s\n' "$C_DIM" "$C_OFF"
     remote_sections
     printf 'X:\t%s──────────────────────────────────%s\n' "$C_DIM" "$C_OFF"
     printf 'G:\t%s⚙  settings%s\n' "$C_DIM" "$C_OFF"
@@ -731,6 +734,17 @@ close_session() {
     fi
 }
 
+# stop_all: end every local session (the whole tmux server) after a y/N check.
+stop_all() {
+    local n ans
+    n=$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')
+    [ "$n" -gt 0 ] || return 0
+    [ -n "${TMUX:-}" ] && echo "tm is running inside one of them, so it closes too."
+    read -rp "Stop all $n local sessions? Claude and anything else running in them stop. [y/N] " ans || return 0
+    [ "$ans" = y ] || [ "$ans" = Y ] || return 0
+    tmux kill-server
+}
+
 while true; do
     load_settings
     # --expect: the first line of fzf's output is the key that ended it (empty for Enter).
@@ -744,5 +758,6 @@ while true; do
         R:*) rest=${key#R:}; go_remote "${rest%%:*}" "${rest#*:}" ;;
         N:*) new_session "${key#N:}" ;;
         G:*) settings_menu ;;
+        A:) stop_all ;;
     esac
 done
