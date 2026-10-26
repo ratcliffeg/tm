@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore tmux sessions (and their Claude conversations) after boot
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The tmux server started here must outlive this script.
+KillMode=process
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=/bin/sleep 15
+ExecStart=%h/.local/bin/tmux-restore
+
+[Install]
+WantedBy=default.target

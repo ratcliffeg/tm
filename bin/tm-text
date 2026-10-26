@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# Text-only tmux session menu: the fallback `tm` uses when fzf is not installed.
+#   - jump to any running tmux session
+#   - start Claude on the work account (~/.claude) or personal account (~/.claude-personal) in a project
+#   - start Claude on a local model (Strata, via claude-local and ~/.claude-local)
+#   - start a plain shell session
+# Sessions are named W-<PROJECT> (work) / P-<PROJECT> (personal), upper case.
+# Claude starts with Remote Control on, named after the session, so every session
+# can be picked up from claude.ai/code or the Claude app.
+# No set -u: bash 3.2 (macOS) treats empty arrays as unset.
+set -o pipefail
+
+TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
+[ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
+PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
+CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
+PERSONAL_DIR="$HOME/.claude-personal"
+LOCAL_DIR="$HOME/.claude-local"
+
+# Same colours as the tmux status bars (tmux-account-style): blue = personal, green = work.
+hex_esc() { local h=${1#\#}; printf '\e[38;2;%d;%d;%dm' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+if [ -t 1 ]; then
+    C_PERSONAL=$(hex_esc "${TM_PERSONAL_COLOUR:-#89b4fa}") C_WORK=$(hex_esc "${TM_WORK_COLOUR:-#a6e3a1}")
+    C_SHELL=$(hex_esc "${TM_SHELL_COLOUR:-#9399b2}") C_CODEX=$(hex_esc "${TM_CODEX_COLOUR:-#fab387}")
+    C_LOCAL=$(hex_esc "${TM_LOCAL_COLOUR:-#cba6f7}")
+    C_DIM=$'\e[2m' C_OFF=$'\e[0m'
+else
+    C_PERSONAL='' C_WORK='' C_SHELL='' C_CODEX='' C_LOCAL='' C_DIM='' C_OFF=''
+fi
+
+# account_of <session> -> personal|work|shell|codex|local
+account_of() {
+    # Plain shell sessions (S-<FOLDER>) have no account.
+    case "$(tmux display-message -p -t "$1" '#{session_name}' 2>/dev/null)" in S-*) echo shell; return ;; CX-*) echo codex; return ;; esac
+    case "$(tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null)" in
+        CLAUDE_CONFIG_DIR=*claude-personal*) echo personal ;;
+        CLAUDE_CONFIG_DIR=*claude-local*) echo local ;;
+        *) echo work ;;
+    esac
+}
+
+go_to() {
+    if [ -n "${TMUX:-}" ]; then
+        exec tmux switch-client -t "=$1"
+    else
+        exec tmux attach-session -t "=$1"
+    fi
+}
+
+# start_session <name> <dir> <command|""> [env...]
+start_session() {
+    local name="$1" dir="$2" cmd="$3" env
+    shift 3
+    if ! tmux has-session -t "=$name" 2>/dev/null; then
+        local args=(new-session -d -s "$name" -c "$dir")
+        for env in "$@"; do [ -n "$env" ] && args+=(-e "$env"); done
+        [ -n "$cmd" ] && args+=("$cmd; exec bash")
+        tmux "${args[@]}"
+    fi
+    go_to "$name"
+}
+
+# Prints the chosen folder; prints nothing if the user goes back (b).
+pick_project() {
+    local projects=() i choice path
+    while IFS= read -r p; do projects+=("$p"); done < <(for d in "$PROJECTS_ROOT"/*/; do [ -d "$d" ] && basename "$d"; done | sort -f)
+    while true; do
+        echo >&2
+        for i in "${!projects[@]}"; do printf '  %2d) %s\n' "$((i + 1))" "${projects[i]}" >&2; done
+        printf '   h) home folder\n' >&2
+        printf '   .) current folder (%s)\n' "${PWD/#$HOME/\~}" >&2
+        printf '   t) type a path (Tab completes)\n' >&2
+        printf '   b) back\n' >&2
+        read -rp "Folder: " choice || return
+        case "$choice" in
+            b|"") return ;;
+            h) echo "$HOME"; return ;;
+            .) echo "$PWD"; return ;;
+            t)
+                read -erp "Path (Enter = back): " path || return
+                [ -z "$path" ] && continue
+                path="${path/#\~/$HOME}"
+                if [ -d "$path" ]; then (cd "$path" && pwd); return; fi
+                echo "No such folder: $path" >&2
+                ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#projects[@]}" ]; then
+                    echo "$PROJECTS_ROOT/${projects[choice - 1]}"; return
+                fi
+                echo "Not an option: $choice" >&2
+                ;;
+        esac
+    done
+}
+
+# session_name <prefix> <dir>: "<prefix>-<FOLDER>" in upper case, made unique with -2, -3...
+session_name() {
+    local base name n=1
+    base="$1-$(basename "$2" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')"
+    name=$base
+    while tmux has-session -t "=$name" 2>/dev/null; do n=$((n + 1)); name="$base-$n"; done
+    echo "$name"
+}
+
+main() {
+    local sessions=() i choice dir name attached env e
+    while IFS= read -r s; do sessions+=("$s"); done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+    echo
+    echo "tmux sessions"
+    if [ "${#sessions[@]}" -eq 0 ]; then
+        echo "  (none running)"
+    else
+        for i in "${!sessions[@]}"; do
+            name=${sessions[i]}
+            attached=$(tmux display-message -p -t "=$name:" '#{?session_attached,  (attached),}')
+            case "$(account_of "=$name:")" in
+                personal) printf '  %2d) %s%-24s PERSONAL%s%s%s%s\n' "$((i + 1))" "$C_PERSONAL" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+                shell)    printf '  %2d) %s%-24s SHELL%s%s%s%s\n' "$((i + 1))" "$C_SHELL" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+                codex)    printf '  %2d) %s%-24s CODEX%s%s%s%s\n' "$((i + 1))" "$C_CODEX" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+                local)    printf '  %2d) %s%-24s LOCAL%s%s%s%s\n' "$((i + 1))" "$C_LOCAL" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+                *)        printf '  %2d) %s%-24s WORK%s%s%s%s\n' "$((i + 1))" "$C_WORK" "$name" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            esac
+        done
+    fi
+    echo
+    echo "   ${C_WORK}w) new Claude session - work account${C_OFF}"
+    echo "   ${C_PERSONAL}p) new Claude session - personal account${C_OFF}"
+    echo "   ${C_LOCAL}l) new Claude session - local model${C_OFF}"
+    echo "   ${C_CODEX}x) new Codex session${C_OFF}"
+    echo "   ${C_SHELL}s) new shell session${C_OFF}"
+    echo "   c) close a session"
+    echo "   q) quit"
+    echo
+    read -rp "Choose: " choice || exit 0
+
+    # Going back (or a typo) just returns, and the loop below shows this menu again.
+    case "$choice" in
+        q|"") exit 0 ;;
+        w|p)
+            dir=$(pick_project); [ -z "$dir" ] && return
+            name=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
+            if [ "$choice" = w ]; then
+                start_session "W-$name" "$dir" "$CLAUDE --remote-control W-$name"
+            else
+                start_session "P-$name" "$dir" "$CLAUDE --remote-control P-$name" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR"
+            fi
+            ;;
+        l)
+            dir=$(pick_project); [ -z "$dir" ] && return
+            env=()
+            while IFS= read -r e; do env+=("$e"); done < <("$(dirname "$0")/claude-local" --env)
+            start_session "L-$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')" "$dir" "$CLAUDE" "CLAUDE_CONFIG_DIR=$LOCAL_DIR" "${env[@]}"
+            ;;
+        x)
+            command -v codex >/dev/null || { echo "Codex isn't installed on this machine."; return; }
+            dir=$(pick_project); [ -z "$dir" ] && return
+            start_session "CX-$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')" "$dir" "$(command -v codex)"
+            ;;
+        s)
+            dir=$(pick_project); [ -z "$dir" ] && return
+            start_session "$(session_name S "$dir")" "$dir" ""
+            ;;
+        c)
+            read -rp "Close which session (number, Enter = back): " choice || return
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sessions[@]}" ]; then
+                name=${sessions[choice - 1]}
+                read -rp "Close $name? Claude and anything else running in it stop. [y/N] " choice || return
+                if [ "$choice" = y ] || [ "$choice" = Y ]; then tmux kill-session -t "=$name"; fi
+            fi
+            ;;
+        *)
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sessions[@]}" ]; then
+                go_to "${sessions[choice - 1]}"
+            fi
+            echo "Not an option: $choice"
+            ;;
+    esac
+}
+
+while true; do main; done

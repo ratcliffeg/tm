@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Snapshot running tmux sessions so tmux-restore can bring them back after a reboot.
+# One line per session: name<TAB>cwd<TAB>claude-session-id<TAB>claude-config-dir
+# (empty id = plain shell; empty config dir = default ~/.claude work account).
+# Run every minute by tmux-save.timer (Linux) or the tm.save launchd agent (macOS).
+set -u
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tmux-sessions"
+out="$state_dir/sessions.tsv"
+mkdir -p "$state_dir"
+
+if ! tmux ls >/dev/null 2>&1; then
+  # No tmux server. During shutdown that's expected, so keep the last snapshot;
+  # otherwise every session was closed on purpose, so forget them.
+  # macOS has no way to tell the two apart here, so it always keeps the snapshot.
+  if command -v systemctl >/dev/null; then
+    case "$(systemctl is-system-running 2>/dev/null)" in
+      stopping) ;;
+      *) : >"$out" ;;
+    esac
+  fi
+  exit 0
+fi
+
+# Config dirs to look in: the default work account, the personal account, then the local model.
+config_dirs=("$HOME/.claude" "$HOME/.claude-personal" "$HOME/.claude-local")
+
+# Find a claude process under $1 (the pane's shell) and print its conversation ID
+# and config dir (empty for the default ~/.claude), tab-separated.
+claude_id() {
+  local pid dir
+  for pid in $(pgrep -P "$1"); do
+    for dir in "${config_dirs[@]}"; do
+      if [ -f "$dir/sessions/$pid.json" ]; then
+        printf '%s\t%s' "$(sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p' "$dir/sessions/$pid.json")" \
+          "$([ "$dir" = "$HOME/.claude" ] || echo "$dir")"
+        return
+      fi
+    done
+    claude_id "$pid" && return
+  done
+  return 1
+}
+
+tmp=$(mktemp "$state_dir/.sessions.XXXXXX")
+tmux list-sessions -F '#{session_name}' | while read -r name; do
+  id="" cwd="" found=""
+  # Prefer a pane running claude; fall back to the active pane's directory.
+  # Space-separated: tmux turns tabs into "_" when there's no UTF-8 locale (e.g. under launchd).
+  # The pid has no spaces, so the path (the last field) keeps any of its own.
+  while read -r pane_pid pane_cwd; do
+    [ -z "$cwd" ] && cwd="$pane_cwd"
+    if found=$(claude_id "$pane_pid") && [ -n "${found%%$'\t'*}" ]; then cwd="$pane_cwd"; break; fi
+    found=""
+  done < <(tmux list-panes -s -t "=$name" -F '#{pane_pid} #{pane_current_path}')
+  # No claude running: keep the session's account so a plain shell comes back on it too.
+  [ -z "$found" ] && found=$'\t'"$(tmux show-environment -t "=$name" CLAUDE_CONFIG_DIR 2>/dev/null | sed -n 's/^CLAUDE_CONFIG_DIR=//p')"
+  printf '%s\t%s\t%s\n' "$name" "$cwd" "$found"
+done >"$tmp"
+mv "$tmp" "$out"

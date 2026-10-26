@@ -1,0 +1,6 @@
+[Unit]
+Description=Snapshot tmux sessions for restore after reboot
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/tmux-save

@@ -1,0 +1,763 @@
+#!/usr/bin/env bash
+# Full-screen tmux session picker (fzf): sessions on the left, a view of the highlighted
+# session's screen on the right. Also starts new Claude or shell sessions on the work
+# account (~/.claude) or personal account (~/.claude-personal), or on a local model (Strata,
+# via claude-local and ~/.claude-local).
+# Sessions are named W-<FOLDER> (work) / P-<FOLDER> (personal) / L-<FOLDER> (local model), upper
+# case; work and personal Claude start with Remote Control on, named after the session.
+# Falls back to the text menu (tm-text) when fzf isn't installed.
+set -uo pipefail
+
+# Settings (TM_PROJECTS_ROOT) can go in ~/.config/tm/config; install.sh writes it.
+TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
+# "#rrggbb" helpers: text colour, background colour, and a dark tint (15%) of a colour.
+hex_esc()   { local h=${1#\#}; printf '\e[38;2;%d;%d;%dm' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+hex_bgesc() { local h=${1#\#}; printf '\e[48;2;%d;%d;%dm' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+tint_of()   { local h=${1#\#}; printf '#%02x%02x%02x' $((0x${h:0:2} * 15 / 100)) $((0x${h:2:2} * 15 / 100)) $((0x${h:4:2} * 15 / 100)); }
+# Account names and colours are editable in tm's settings menu: a label shown beside sessions, a
+# prefix used when naming new ones (defaults WORK/W and PERSONAL/P), and a bar colour plus
+# background tint for each kind of session.
+load_settings() {
+    unset TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX TM_REMOTES TM_PROJECTS_ROOT \
+          TM_WORK_COLOUR TM_WORK_TINT TM_PERSONAL_COLOUR TM_PERSONAL_TINT \
+          TM_SHELL_COLOUR TM_SHELL_TINT TM_CODEX_COLOUR TM_CODEX_TINT TM_LOCAL_COLOUR TM_LOCAL_TINT \
+          TM_LOCAL_URL TM_LOCAL_MODEL TM_LOCAL_TOKEN TM_LOCAL_MAX_CONTEXT_TOKENS TM_LOCAL_MAX_OUTPUT_TOKENS
+    [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
+    WORK_LABEL="${TM_WORK_LABEL:-WORK}" WORK_PREFIX="${TM_WORK_PREFIX:-W}"
+    PERSONAL_LABEL="${TM_PERSONAL_LABEL:-PERSONAL}" PERSONAL_PREFIX="${TM_PERSONAL_PREFIX:-P}"
+    PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
+    WORK_HEX="${TM_WORK_COLOUR:-#a6e3a1}"         WORK_TINT_HEX="${TM_WORK_TINT:-$([ -n "${TM_WORK_COLOUR:-}" ] && tint_of "$TM_WORK_COLOUR" || echo '#16271b')}"
+    PERSONAL_HEX="${TM_PERSONAL_COLOUR:-#89b4fa}" PERSONAL_TINT_HEX="${TM_PERSONAL_TINT:-$([ -n "${TM_PERSONAL_COLOUR:-}" ] && tint_of "$TM_PERSONAL_COLOUR" || echo '#16213a')}"
+    SHELL_HEX="${TM_SHELL_COLOUR:-#9399b2}"       SHELL_TINT_HEX="${TM_SHELL_TINT:-$([ -n "${TM_SHELL_COLOUR:-}" ] && tint_of "$TM_SHELL_COLOUR" || echo '#1e1e2e')}"
+    CODEX_HEX="${TM_CODEX_COLOUR:-#fab387}"       CODEX_TINT_HEX="${TM_CODEX_TINT:-$([ -n "${TM_CODEX_COLOUR:-}" ] && tint_of "$TM_CODEX_COLOUR" || echo '#2b2016')}"
+    LOCAL_HEX="${TM_LOCAL_COLOUR:-#cba6f7}"       LOCAL_TINT_HEX="${TM_LOCAL_TINT:-$([ -n "${TM_LOCAL_COLOUR:-}" ] && tint_of "$TM_LOCAL_COLOUR" || echo '#1e1825')}"
+    C_WORK=$(hex_esc "$WORK_HEX") C_PERSONAL=$(hex_esc "$PERSONAL_HEX") C_SHELL=$(hex_esc "$SHELL_HEX") C_CODEX=$(hex_esc "$CODEX_HEX") C_LOCAL=$(hex_esc "$LOCAL_HEX")
+}
+load_settings
+lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
+PERSONAL_DIR="$HOME/.claude-personal"
+LOCAL_DIR="$HOME/.claude-local"
+# fzf calls this script back for previews; no readlink -f on older macOS.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+# Environment for local-model sessions (Strata address, model, token), from claude-local.
+local_env() { "$(dirname "$SELF")/claude-local" --env; }
+
+command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
+
+# Menu colours follow the tmux status bars (set in load_settings); only dim/reset live here.
+C_DIM=$'\e[2m' C_OFF=$'\e[0m'
+
+# --- remote machines ------------------------------------------------------------------
+# TM_REMOTES in the config lists other machines whose tmux sessions tm should show:
+#   TM_REMOTES="lxc=me@192.0.2.10,me@lxc.example-tailnet.ts.net other=user@host"
+# Space-separated "<name>=<ssh target>[,<fallback target>...]"; the first target that
+# answers wins (LAN address first, then e.g. Tailscale). Needs key-based SSH.
+TM_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tm"
+mkdir -p "$TM_CACHE"
+# ControlMaster keeps one connection open, so previews don't pay an SSH handshake each time.
+# (unix sockets are limited to 104 bytes of path, so a deep cache folder falls back to /tmp)
+CM_DIR="$TM_CACHE"
+if [ ${#CM_DIR} -gt 50 ]; then CM_DIR="/tmp/tm-$(id -u)"; mkdir -p -m 700 "$CM_DIR"; fi
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=3 -o ControlMaster=auto
+          -o "ControlPath=$CM_DIR/cm-%C" -o ControlPersist=120)
+
+remote_names() { local e; for e in ${TM_REMOTES:-}; do echo "${e%%=*}"; done; }
+
+remote_targets() { # <name> -> its targets, one per line
+    local e
+    for e in ${TM_REMOTES:-}; do [ "${e%%=*}" = "$1" ] && echo "${e#*=}" | tr ',' '\n'; done
+}
+
+# remote_target <name>: print the target that answers (last good one first); 1 if none.
+remote_target() {
+    local name=$1 last t
+    last=$(cat "$TM_CACHE/target-$name" 2>/dev/null)
+    for t in $last $(remote_targets "$name" | grep -vxF "$last"); do
+        if ssh -n "${SSH_OPTS[@]}" "$t" true 2>/dev/null; then
+            echo "$t" >"$TM_CACHE/target-$name"
+            echo "$t"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# rsh <name> <command...>: run a command on the remote using the last good target.
+rsh() {
+    local name=$1 t
+    shift
+    t=$(cat "$TM_CACHE/target-$name" 2>/dev/null) || t=$(remote_target "$name") || return 1
+    ssh -n "${SSH_OPTS[@]}" "$t" "$@"
+}
+
+# rrun <name> <script> [args...]: run a bash script (read from stdin) on the remote, with args.
+# ssh joins its arguments into one string, so each arg is quoted for the remote shell.
+rrun() {
+    local name=$1 script=$2 t q
+    shift 2
+    t=$(cat "$TM_CACHE/target-$name" 2>/dev/null) || t=$(remote_target "$name") || return 1
+    [ $# -gt 0 ] && q=$(printf '%q ' "$@")
+    ssh "${SSH_OPTS[@]}" "$t" "bash -s -- ${q:-}" <<<"$script"
+}
+
+# remote_section <name>: the menu lines for one remote.
+remote_section() {
+    local name=$1 target out s attached env
+    if ! target=$(remote_target "$name"); then
+        printf 'X:\t%s── %s (offline) ──%s\n' "$C_DIM" "$name" "$C_OFF"
+        return
+    fi
+    out=$(ssh -n "${SSH_OPTS[@]}" "$target" 'tmux list-sessions -F "#{session_name}|#{session_attached}" 2>/dev/null |
+        while IFS="|" read -r s a; do
+            printf "%s|%s|%s\n" "$s" "$a" "$(tmux show-environment -t "=$s:" CLAUDE_CONFIG_DIR 2>/dev/null)"
+        done')
+    printf 'X:\t%s── %s ──%s\n' "$C_DIM" "$name" "$C_OFF"
+    [ -z "$out" ] && printf 'X:\t%s(no sessions)%s\n' "$C_DIM" "$C_OFF"
+    while IFS='|' read -r s attached env; do
+        [ "$attached" != 0 ] && attached=' (attached)' || attached=''
+        case "$s$env" in
+            S-*) printf 'R:%s:%s\t%s%-22s SHELL%s%s%s%s\n' "$name" "$s" "$C_SHELL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            CX-*) printf 'R:%s:%s\t%s%-22s CODEX%s%s%s%s\n' "$name" "$s" "$C_CODEX" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *claude-local*) printf 'R:%s:%s\t%s%-22s LOCAL%s%s%s%s\n' "$name" "$s" "$C_LOCAL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *claude-personal*) printf 'R:%s:%s\t%s%-22s %s%s%s%s%s\n' "$name" "$s" "$C_PERSONAL" "$s" "$PERSONAL_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *)                 printf 'R:%s:%s\t%s%-22s %s%s%s%s%s\n' "$name" "$s" "$C_WORK" "$s" "$WORK_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+        esac
+    done <<<"$out"
+    printf 'N:%s\t%s+ new session on %s%s\n' "$name" "$C_DIM" "$name" "$C_OFF"
+}
+
+# remote_sections: every remote, queried in parallel, printed in config order.
+remote_sections() {
+    local tmp name i=0
+    [ -z "${TM_REMOTES:-}" ] && return
+    tmp=$(mktemp -d)
+    for name in $(remote_names); do
+        remote_section "$name" >"$tmp/$i" &
+        i=$((i + 1))
+    done
+    wait
+    for ((n = 0; n < i; n++)); do cat "$tmp/$n"; done
+    rm -rf "$tmp"
+}
+
+# go_remote <name> <session>: attach to a session on another machine.
+go_remote() {
+    local target
+    target=$(remote_target "$1") || { echo "Can't reach $1" >&2; sleep 1.5; return; }
+    if [ -n "${TMUX:-}" ]; then
+        # A new window of its own; inside it, press the tmux prefix twice to reach the remote tmux.
+        tmux new-window -n "$1:$2" ssh -t "${SSH_OPTS[@]}" "$target" tmux attach-session -t "=$2"
+        exit 0
+    fi
+    ssh -t "${SSH_OPTS[@]}" "$target" tmux attach-session -t "=$2"
+}
+
+# account_of <session> -> personal|work|shell|codex|local
+account_of() {
+    # Plain shell sessions (S-<FOLDER>) have no account.
+    case "$(tmux display-message -p -t "$1" '#{session_name}' 2>/dev/null)" in
+        S-*) echo shell; return ;;
+        CX-*) echo codex; return ;;
+    esac
+    case "$(tmux show-environment -t "$1" CLAUDE_CONFIG_DIR 2>/dev/null)" in
+        CLAUDE_CONFIG_DIR=*claude-personal*) echo personal ;;
+        CLAUDE_CONFIG_DIR=*claude-local*) echo local ;;
+        *) echo work ;;
+    esac
+}
+
+go_to() {
+    if [ -n "${TMUX:-}" ]; then
+        exec tmux switch-client -t "=$1"
+    else
+        # Not exec: when you detach (prefix d) or the session ends, the menu comes back.
+        tmux attach-session -t "=$1"
+    fi
+}
+
+# start_session <name> <dir> <command|""> [env...]
+start_session() {
+    local name="$1" dir="$2" cmd="$3" env
+    shift 3
+    if ! tmux has-session -t "=$name" 2>/dev/null; then
+        local args=(new-session -d -s "$name" -c "$dir")
+        for env in "$@"; do [ -n "$env" ] && args+=(-e "$env"); done
+        [ -n "$cmd" ] && args+=("$cmd; exec bash")
+        tmux "${args[@]}"
+    fi
+    go_to "$name"
+}
+
+# session_name <prefix> <dir>: "<prefix>-<FOLDER>" in upper case, made unique with -2, -3...
+session_name() {
+    local base name n=1
+    base="$1-$(basename "$2" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')"
+    name=$base
+    while tmux has-session -t "=$name" 2>/dev/null; do n=$((n + 1)); name="$base-$n"; done
+    echo "$name"
+}
+
+# --- preview pane (fzf calls back into this script) ---------------------------------
+# Every list line is "<key><TAB><display>"; the key says what the line is:
+#   S:<session>  running session      N:<remote|empty>  new session (locally if empty)
+#   R:<remote>:<session>  session on another machine (TM_REMOTES)
+#   D:<dir>      folder               T:             type a path      X:  separator
+#   A:           stop every local session
+preview() {
+    local key=$1 dir rest k pre bn tn
+    case "$key" in
+        S:*) tmux capture-pane -ep -t "=${key#S:}:" 2>/dev/null || echo "(this session has closed)" ;;
+        R:*)
+            rest=${key#R:}
+            rsh "${rest%%:*}" tmux capture-pane -ep -t "=${rest#*:}:" 2>/dev/null || echo "(can't reach ${rest%%:*}, or the session has closed)"
+            ;;
+        D:*)
+            dir=${key#D:}
+            git -C "$dir" log -1 --format="%C(yellow)%D%C(reset)  %s  %C(dim)%cr%C(reset)" --color=always 2>/dev/null && echo
+            # GNU ls (Linux) vs BSD ls (macOS)
+            if ls --color=always -d / >/dev/null 2>&1; then
+                ls -p --color=always --group-directories-first "$dir" 2>/dev/null | head -200
+            else
+                CLICOLOR_FORCE=1 ls -pG "$dir" 2>/dev/null | head -200
+            fi
+            ;;
+        T:) echo "Type any folder path, with Tab completion. ~ works." ;;
+        A:) printf 'Stop every tmux session on this machine (%s), and Claude and anything\nelse running in them. Asks first. Sessions on other machines keep running.\n\nThey won'"'"'t come back after a reboot either.\n' "$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')" ;;
+        N:*) printf 'Start a new Claude or shell session %s.\n\nYou choose Claude (%s, %s or local model), Codex\nor a shell, then a folder.\n' "$([ -n "${key#N:}" ] && echo "on ${key#N:}" || echo locally)" "$(lc "$WORK_LABEL")" "$(lc "$PERSONAL_LABEL")" ;;
+        G:wl|G:pl) printf 'The name shown beside sessions of this account, in the menu and the tmux\nstatus bar. Upper-cased. Existing sessions keep their names.\n' ;;
+        G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
+        G:r) printf 'Back to WORK / W and PERSONAL / P.\n' ;;
+        G:cl) printf 'The status-bar colour and the dark background tint for work, personal, shell,\nCodex and local-model sessions. Set a bar colour and the tint follows (or set it yourself).\n' ;;
+        G:lu) printf 'Where the Strata server is: a Tailscale name or address, optionally with a\nport, or a full URL. A bare name gets http:// and port 8080.\nClaude Code adds /v1/messages itself.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
+        G:lm) printf 'The model name local sessions send: Strata'"'"'s name for the model it has\nloaded (it shows it in its Claude connection settings). Used for background\ncalls too. Not set: Claude Code'"'"'s usual model names.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p' | grep . || echo '(not set)')" ;;
+        G:lt) printf 'Strata'"'"'s API key (sk-strata-...), from its Claude connection settings.\nKept in %s, readable only by you.\n' "$(echo "$TM_CONFIG" | sed "s|^$HOME|~|")" ;;
+        G:lx) printf 'Check that the Strata server answers at the address above.\n' ;;
+        Q:r) printf 'Back to the built-in colours.\n' ;;
+        Q:*)
+            k=${key#Q:}
+            case "${k:0:1}" in w) pre=WORK ;; p) pre=PERSONAL ;; s) pre=SHELL ;; l) pre=LOCAL ;; *) pre=CODEX ;; esac
+            bn="${pre}_HEX"; tn="${pre}_TINT_HEX"
+            printf 'Status bar and window background for this kind of session:\n\n%s\e[38;2;30;30;46m  %s · session name  %s\n%s  window background, as terminal text sees it  %s\n\nStatus bar %s    Tint %s\n' \
+                "$(hex_bgesc "${!bn}")" "$pre" "$C_OFF" "$(hex_bgesc "${!tn}")" "$C_OFF" "${!bn}" "${!tn}"
+            ;;
+        G:rm) printf 'Other machines whose tmux sessions tm lists and opens over SSH.\nAdd, change, test or remove them here.\n' ;;
+        G:pr) printf 'The folder tm lists projects from when you start a new session.\n\nCurrently: %s\n' "$PROJECTS_ROOT" ;;
+        M:+) printf 'Add another machine.\n\nYou give it a name and one or more SSH addresses (comma-separated,\nin order of preference, e.g. me@192.168.1.5,me@host.ts.net).\nThe first address that answers is used.\n' ;;
+        M:*) printf '%s\n\n' "${key#M:}"; remote_targets "${key#M:}" | sed 's/^/  /'; printf '\nLast address that worked: %s\n' "$(cat "$TM_CACHE/target-${key#M:}" 2>/dev/null || echo '(none yet)')" ;;
+        E:*) printf 'Change %s for this remote.\n' "${key#E:}" ;;
+        K:cw) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_WORK" "$WORK_LABEL" "$C_OFF" "$WORK_PREFIX" ;;
+        K:cp) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_PERSONAL" "$PERSONAL_LABEL" "$C_OFF" "$PERSONAL_PREFIX" ;;
+        K:cl) printf '%sNew Claude session — local model%s\n\nClaude Code on the Strata server at\n%s\nNamed L-<FOLDER>. No Remote Control.\n' "$C_LOCAL" "$C_OFF" "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
+        K:x)  printf '%sNew Codex session%s\n\nOpenAI Codex in the chosen folder. Named CX-<FOLDER>.\n' "$C_CODEX" "$C_OFF" ;;
+        K:s)  printf '%sNew shell session%s\n\nA plain terminal, no Claude. Named S-<FOLDER>.\n' "$C_SHELL" "$C_OFF" ;;
+        RD:*)
+            rest=${key#RD:}
+            rrun "${rest%%:*}" 'git -C "$1" log -1 --format="%C(yellow)%D%C(reset)  %s  %C(dim)%cr%C(reset)" --color=always 2>/dev/null && echo
+ls -p "$1" 2>/dev/null | head -200' "${rest#*:}" 2>/dev/null || echo "(can't reach ${rest%%:*})"
+            ;;
+    esac
+}
+
+# Label shown above the preview.
+label() {
+    local key=$1 s
+    case "$key" in
+        S:*)
+            s=${key#S:}
+            printf ' %s · %s · %s ' "$s" "$(tmux display-message -p -t "=$s:" '#{s|^'"$HOME"'|~|:pane_current_path}' 2>/dev/null)" \
+                "$(account_of "=$s:" | tr '[:lower:]' '[:upper:]')"
+            ;;
+        R:*)
+            rest=${key#R:}
+            printf ' %s · %s · %s ' "${rest%%:*}" "${rest#*:}" \
+                "$(rsh "${rest%%:*}" tmux display-message -p -t "=${rest#*:}:" "'#{pane_current_path}'" 2>/dev/null | sed "s|^/home/[^/]*|~|")"
+            ;;
+        D:*) printf ' %s ' "${key#D:}" | sed "s|$HOME|~|" ;;
+        RD:*) rest=${key#RD:}; printf ' %s:%s ' "${rest%%:*}" "${rest#*:}" ;;
+        *) printf ' tm ' ;;
+    esac
+}
+
+case "${1:-}" in
+    --preview) preview "$2"; exit 0 ;;
+    --label) label "$2"; exit 0 ;;
+esac
+
+FZF_OPTS=(
+    --ansi --delimiter=$'\t' --with-nth=2 --layout=reverse --border=rounded --info=inline-right
+    --preview="$SELF --preview {1}"
+    --bind="focus:transform-preview-label:$SELF --label {1}"
+    --bind=ctrl-r:refresh-preview
+    # Preview on the right; below the list when that would be under 50 columns (phone).
+    --preview-window='right,60%,border-left,<50(down,55%,border-top)'
+    --color='border:#6c7086,label:#cdd6f4,preview-border:#6c7086,preview-label:#cdd6f4,pointer:#f5c2e7,prompt:#f5c2e7,hl:#f9e2af,hl+:#f9e2af,header:#7f849c'
+)
+
+# pick_folder <title>: prints the chosen folder; returns 1 if the user goes back.
+pick_folder() {
+    local sel path
+    while true; do
+        sel=$(
+            {
+                # current folder first (the default pick), then type-a-path; home only when it differs
+                printf 'D:%s\t%s.  current folder (%s)%s\n' "$PWD" "$C_DIM" "${PWD/#$HOME/\~}" "$C_OFF"
+                printf 'T:\t%s✎  type a path…%s\n' "$C_DIM" "$C_OFF"
+                [ "$PWD" != "$HOME" ] && printf 'D:%s\t%s~  home folder%s\n' "$HOME" "$C_DIM" "$C_OFF"
+                # (no find -printf on macOS)
+                for p in "$PROJECTS_ROOT"/*/; do [ -d "$p" ] && basename "$p"; done | sort -f |
+                    while IFS= read -r p; do printf 'D:%s\t%s\n' "$PROJECTS_ROOT/$p" "$p"; done
+            } | fzf "${FZF_OPTS[@]}" --border-label=" $1 · choose a folder " \
+                    --header='Enter select · Esc back'
+        ) || return 1
+        case "${sel%%$'\t'*}" in
+            D:*) echo "${sel%%$'\t'*}" | cut -c3-; return 0 ;;
+            T:)
+                read -erp "Path (Enter = back): " path || return 1
+                [ -z "$path" ] && continue
+                path="${path/#\~/$HOME}"
+                if [ -d "$path" ]; then (cd "$path" && pwd); return 0; fi
+                echo "No such folder: $path" >&2; sleep 1.5
+                ;;
+        esac
+    done
+}
+
+# remote_pick_folder <name> <title>: like pick_folder, for a folder on the remote machine.
+remote_pick_folder() {
+    local name=$1 sel path root home
+    home=$(rrun "$name" 'echo "$HOME"') || { echo "Can't reach $name" >&2; sleep 1.5; return 1; }
+    root=$(rrun "$name" 'f="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"; [ -f "$f" ] && . "$f"; echo "${TM_PROJECTS_ROOT:-$HOME/Code}"')
+    while true; do
+        sel=$(
+            {
+                printf 'RD:%s:%s\t%s~  home folder%s\n' "$name" "$home" "$C_DIM" "$C_OFF"
+                printf 'T:\t%s✎  type a path…%s\n' "$C_DIM" "$C_OFF"
+                rrun "$name" 'for p in "$1"/*/; do [ -d "$p" ] && basename "$p"; done | sort -f' "$root" 2>/dev/null |
+                    while IFS= read -r p; do printf 'RD:%s:%s/%s\t%s\n' "$name" "$root" "$p" "$p"; done
+            } | fzf "${FZF_OPTS[@]}" --border-label=" $2 · folder on $name ($root) " \
+                    --header='Enter select · Esc back'
+        ) || return 1
+        case "${sel%%$'\t'*}" in
+            RD:*) sel=${sel%%$'\t'*}; sel=${sel#RD:}; echo "${sel#*:}"; return 0 ;;
+            T:)
+                read -erp "Path on $name (Enter = back): " path || return 1
+                [ -z "$path" ] && continue
+                if sel=$(rrun "$name" 'p=$1; case "$p" in "~"*) p="$HOME${p#"~"}" ;; esac; cd "$p" 2>/dev/null && pwd' "$path") && [ -n "$sel" ]; then
+                    echo "$sel"; return 0
+                fi
+                echo "No such folder on $name: $path" >&2; sleep 1.5
+                ;;
+        esac
+    done
+}
+
+# new_session <remote name | "" for this machine>: choose Claude (work/personal/local model),
+# Codex or a shell, then a folder, then start the session there and attach to it.
+new_session() {
+    local name=${1:-} kind sel dir title session base where=locally env=() e
+    [ -n "$name" ] && where="on $name"
+    sel=$(printf 'K:cw\t%s+ Claude   %s%s\nK:cp\t%s+ Claude   %s%s\nK:cl\t%s+ Claude   local model%s\nK:x\t%s+ Codex%s\nK:s\t%s+ Shell%s\n' \
+              "$C_WORK" "$(lc "$WORK_LABEL")" "$C_OFF" "$C_PERSONAL" "$(lc "$PERSONAL_LABEL")" "$C_OFF" "$C_LOCAL" "$C_OFF" "$C_CODEX" "$C_OFF" "$C_SHELL" "$C_OFF" |
+          fzf "${FZF_OPTS[@]}" --border-label=" new session $where " --header='Enter select · Esc back') || return 0
+    kind=${sel%%$'\t'*}; kind=${kind#K:}
+    case "$kind" in
+        cw) title="Claude · $(lc "$WORK_LABEL")" ;;   cp) title="Claude · $(lc "$PERSONAL_LABEL")" ;;
+        cl) title='Claude · local model' ;;
+        x)  title='Codex' ;;
+        s)  title='Shell' ;;
+        *) return 0 ;;
+    esac
+    if [ "$kind" = x ] && [ -z "$name" ] && ! command -v codex >/dev/null; then
+        echo "Codex isn't installed on this machine." >&2; sleep 2; return 0
+    fi
+    # Strata's address, model and token, put on the session so a plain `claude` in it (after
+    # Claude exits) still talks to Strata. A remote with tm installed uses its own instead.
+    if [ "$kind" = cl ]; then while IFS= read -r e; do env+=("$e"); done < <(local_env); fi
+    if [ -z "$name" ]; then
+        dir=$(pick_folder "$title") || return 0
+        base=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
+        case "$kind" in
+            cw) start_session "$WORK_PREFIX-$base" "$dir" "$CLAUDE --remote-control $WORK_PREFIX-$base" ;;
+            cp) start_session "$PERSONAL_PREFIX-$base" "$dir" "$CLAUDE --remote-control $PERSONAL_PREFIX-$base" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR" ;;
+            cl) start_session "L-$base" "$dir" "$CLAUDE" "CLAUDE_CONFIG_DIR=$LOCAL_DIR" "${env[@]}" ;;
+            x)  start_session "CX-$base" "$dir" "$(command -v codex)" ;;
+            s)  start_session "$(session_name S "$dir")" "$dir" "" ;;
+        esac
+        return 0
+    fi
+    dir=$(remote_pick_folder "$name" "$title") || return 0
+    # args: kind (c|x|s), account (work|personal|local|shell|codex), folder, name prefix, then
+    # KEY=value environment for local-model sessions. Prints the session name.
+    session=$(rrun "$name" '
+kind=$1 acct=$2 dir=$3
+base=$(basename "$dir" | tr ".: " "---" | tr "[:lower:]" "[:upper:]")
+case "$acct" in shell) base="S-$base" ;; codex) base="CX-$base" ;; local) base="L-$base" ;; *) base="$4-$base" ;; esac
+if [ "$kind" = x ]; then
+    codex=$(command -v codex) || { echo "codex isn'"'"'t installed on this machine" >&2; exit 3; }
+fi
+claude=$(command -v claude || echo "$HOME/.local/bin/claude")
+name=$base
+if [ "$kind" = s ]; then
+    n=1; while tmux has-session -t "=$name" 2>/dev/null; do n=$((n + 1)); name="$base-$n"; done
+fi
+if ! tmux has-session -t "=$name" 2>/dev/null; then
+    args=(new-session -d -s "$name" -c "$dir")
+    [ "$acct" = personal ] && args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal")
+    if [ "$acct" = local ]; then
+        args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-local")
+        # Its own Strata settings if tm is installed there (an address like 127.0.0.1 only
+        # means the same thing on the machine it was set on); otherwise the ones passed in.
+        cl=$(command -v claude-local || echo "$HOME/.local/bin/claude-local")
+        if [ -x "$cl" ]; then
+            while IFS= read -r e; do args+=(-e "$e"); done < <("$cl" --env)
+        else
+            for e in "${@:5}"; do args+=(-e "$e"); done
+        fi
+        args+=("$claude; exec bash")
+    elif [ "$kind" = c ]; then
+        args+=("$claude --remote-control $name; exec bash")
+    fi
+    [ "$kind" = x ] && args+=("$codex; exec bash")
+    tmux -u "${args[@]}" || exit 1
+fi
+echo "$name"' "${kind:0:1}" "$(case "$kind" in cp) echo personal ;; cl) echo local ;; s) echo shell ;; x) echo codex ;; *) echo work ;; esac)" "$dir" "$([ "$kind" = cp ] && echo "$PERSONAL_PREFIX" || echo "$WORK_PREFIX")" ${env[@]+"${env[@]}"}) || { echo "Couldn't start the session on $name" >&2; sleep 2; return 0; }
+    go_remote "$name" "$session"
+}
+
+main_list() {
+    local s attached
+    printf 'X:\t%s── local (%s) ──%s\n' "$C_DIM" "$(hostname -s 2>/dev/null || hostname)" "$C_OFF"
+    while IFS= read -r s; do
+        attached=$(tmux display-message -p -t "=$s:" '#{?session_attached, (attached),}')
+        case "$(account_of "=$s:")" in
+            personal) printf 'S:%s\t%s%-22s %s%s%s%s%s\n' "$s" "$C_PERSONAL" "$s" "$PERSONAL_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            shell)    printf 'S:%s\t%s%-22s SHELL%s%s%s%s\n' "$s" "$C_SHELL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            codex)    printf 'S:%s\t%s%-22s CODEX%s%s%s%s\n' "$s" "$C_CODEX" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            local)    printf 'S:%s\t%s%-22s LOCAL%s%s%s%s\n' "$s" "$C_LOCAL" "$s" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+            *)        printf 'S:%s\t%s%-22s %s%s%s%s%s\n' "$s" "$C_WORK" "$s" "$WORK_LABEL" "$C_OFF" "$C_DIM" "$attached" "$C_OFF" ;;
+        esac
+    done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    printf 'N:\t%s+ new session locally%s\n' "$C_DIM" "$C_OFF"
+    tmux has-session 2>/dev/null && printf 'A:\t%s✕ stop all local sessions%s\n' "$C_DIM" "$C_OFF"
+    remote_sections
+    printf 'X:\t%s──────────────────────────────────%s\n' "$C_DIM" "$C_OFF"
+    printf 'G:\t%s⚙  settings%s\n' "$C_DIM" "$C_OFF"
+}
+
+# set_config <KEY> [value]: write KEY="value" into the config file (no value removes it).
+set_config() {
+    mkdir -p "$(dirname "$TM_CONFIG")"; touch "$TM_CONFIG"
+    { grep -v "^$1=" "$TM_CONFIG" || true; [ -n "${2:-}" ] && printf '%s="%s"\n' "$1" "$2"; } >"$TM_CONFIG.tmp"
+    # It can hold Strata's API key.
+    chmod 600 "$TM_CONFIG.tmp"
+    mv "$TM_CONFIG.tmp" "$TM_CONFIG"
+}
+
+# ask_setting <KEY> <what> <current> <label|prefix> [other prefix]
+ask_setting() {
+    local v
+    read -erp "$2 [$3] (Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    v=$(echo "$v" | tr '[:lower:]' '[:upper:]')
+    if [ "$4" = label ]; then
+        [[ "$v" =~ ^[A-Z0-9][A-Z0-9\ _-]{0,15}$ ]] || { echo "Use up to 16 letters, digits, spaces, - or _." >&2; sleep 2; return 0; }
+    else
+        [[ "$v" =~ ^[A-Z0-9]{1,6}$ ]] || { echo "Use 1-6 letters or digits." >&2; sleep 2; return 0; }
+        case "$v" in S|L|CX) echo "$v is taken by shell, local-model or Codex sessions." >&2; sleep 2; return 0 ;; esac
+        [ "$v" = "$5" ] && { echo "That prefix is already used by the other account." >&2; sleep 2; return 0; }
+    fi
+    set_config "$1" "$v"
+    load_settings
+    # Restyle running local sessions so their status-bar label follows.
+    tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all
+}
+
+# remotes_write <old name|""> <new name> <targets|""> : add (old empty), change or remove (targets empty)
+remotes_write() {
+    local old=$1 new=$2 targets=$3 e out="" found=0
+    for e in ${TM_REMOTES:-}; do
+        if [ -n "$old" ] && [ "${e%%=*}" = "$old" ]; then
+            found=1
+            [ -n "$targets" ] && out="$out $new=$targets"
+        else
+            out="$out $e"
+        fi
+    done
+    if [ "$found" = 0 ] && [ -n "$targets" ]; then out="$out $new=$targets"; fi
+    set_config TM_REMOTES "${out# }"
+    rm -f "$TM_CACHE/target-$old" "$TM_CACHE/target-$new"
+    load_settings
+}
+
+pause() { read -rsp "Press Enter to continue " _ || true; echo; }
+
+# remote_test <name>: try each address and say what happened; offers to trust a new host key.
+remote_test() {
+    local name=$1 t out ans
+    echo "Testing ${name}…"
+    for t in $(remote_targets "$name"); do
+        out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=4 "$t" true 2>&1)
+        if [ $? -eq 0 ]; then echo "  ✓ $t"; continue; fi
+        case "$out" in
+            *"Host key verification failed"*|*"authenticity"*)
+                read -rp "  ? $t: first time connecting to this machine. Trust its host key? [y/N] " ans
+                if [ "$ans" = y ] || [ "$ans" = Y ]; then
+                    if ssh -n -o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new "$t" true >/dev/null 2>&1; then
+                        echo "  ✓ $t (host key saved)"
+                    else
+                        echo "  ✗ $t: host key saved, but login failed. Is your key installed there? (ssh-copy-id $t)"
+                    fi
+                else
+                    echo "  ✗ $t: host key not trusted"
+                fi
+                ;;
+            *"Permission denied"*) echo "  ✗ $t: answers, but your key isn't accepted. Run: ssh-copy-id $t" ;;
+            *"timed out"*|*"No route"*|*"refused"*|*"resolve"*) echo "  ✗ $t: can't reach it ($(echo "$out" | tail -1 | sed 's/^ssh: //'))" ;;
+            *) echo "  ✗ $t: $(echo "$out" | tail -1)" ;;
+        esac
+    done
+}
+
+valid_targets() { # comma-separated, no spaces or quotes, each non-empty
+    [[ "$1" =~ ^[A-Za-z0-9._@:-]+(,[A-Za-z0-9._@:-]+)*$ ]]
+}
+
+remote_add() {
+    local name targets e
+    read -erp "Name for this machine (Enter = cancel): " name || return 0
+    [ -z "$name" ] && return 0
+    [[ "$name" =~ ^[A-Za-z0-9_-]{1,20}$ ]] || { echo "Use up to 20 letters, digits, - or _." >&2; sleep 2; return 0; }
+    for e in ${TM_REMOTES:-}; do [ "${e%%=*}" = "$name" ] && { echo "There is already a remote called $name." >&2; sleep 2; return 0; }; done
+    read -erp "SSH address(es), comma-separated, best first (e.g. me@192.168.1.5,me@host.ts.net): " targets || return 0
+    [ -z "$targets" ] && return 0
+    valid_targets "$targets" || { echo "Addresses can't contain spaces or quotes." >&2; sleep 2; return 0; }
+    remotes_write "" "$name" "$targets"
+    echo "Added $name."
+    remote_test "$name"
+    pause
+}
+
+remote_edit() {
+    local name=$1 sel v current
+    while true; do
+        current=$(remote_targets "$name" | paste -sd, -)
+        [ -z "$current" ] && return 0     # removed or renamed
+        sel=$(printf 'E:addr\t%saddresses:%s %s\nE:name\t%srename%s\nE:test\t%stest the connection%s\nE:del\t%sremove this machine%s\n' \
+                  "$C_DIM" "$C_OFF" "$current" "$C_DIM" "$C_OFF" "$C_DIM" "$C_OFF" "$C_DIM" "$C_OFF" |
+              fzf "${FZF_OPTS[@]}" --border-label=" tm · $name " --header='Enter select · Esc back') || return 0
+        case "${sel%%$'\t'*}" in
+            E:addr)
+                read -erp "Addresses [$current] (Enter = keep): " v || continue
+                [ -z "$v" ] && continue
+                valid_targets "$v" || { echo "Addresses can't contain spaces or quotes." >&2; sleep 2; continue; }
+                remotes_write "$name" "$name" "$v"; remote_test "$name"; pause
+                ;;
+            E:name)
+                read -erp "New name [$name] (Enter = keep): " v || continue
+                [ -z "$v" ] && continue
+                [[ "$v" =~ ^[A-Za-z0-9_-]{1,20}$ ]] || { echo "Use up to 20 letters, digits, - or _." >&2; sleep 2; continue; }
+                remotes_write "$name" "$v" "$current"; return 0
+                ;;
+            E:test) remote_test "$name"; pause ;;
+            E:del)
+                read -rp "Remove $name? Its sessions keep running; tm just stops listing them. [y/N] " v
+                if [ "$v" = y ] || [ "$v" = Y ]; then remotes_write "$name" "$name" ""; return 0; fi
+                ;;
+        esac
+    done
+}
+
+remotes_menu() {
+    local sel name
+    while true; do
+        load_settings
+        sel=$({
+                for name in $(remote_names); do
+                    printf 'M:%s\t%-16s %s%s%s\n' "$name" "$name" "$C_DIM" "$(remote_targets "$name" | paste -sd, -)" "$C_OFF"
+                done
+                printf 'M:+\t%s+ add a remote machine%s\n' "$C_DIM" "$C_OFF"
+              } | fzf "${FZF_OPTS[@]}" --border-label=' tm · remote machines ' --header='Enter edit · Esc back') || return 0
+        case "${sel%%$'\t'*}" in
+            M:+) remote_add ;;
+            M:*) sel=${sel%%$'\t'*}; remote_edit "${sel#M:}" ;;
+        esac
+    done
+}
+
+ask_projects_root() {
+    local v
+    read -erp "Projects folder [$PROJECTS_ROOT] (Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    v="${v/#\~/$HOME}"
+    [ -d "$v" ] || { echo "No such folder: $v" >&2; sleep 2; return 0; }
+    set_config TM_PROJECTS_ROOT "$(cd "$v" && pwd)"
+    load_settings
+}
+
+restyle() { tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all; return 0; }
+
+# ask_colour <KEY> <what> <current> [auto]: edit a #rrggbb colour ("auto" clears a tint override).
+ask_colour() {
+    local v
+    read -erp "$2 [$3] (#rrggbb${4:+, or auto}; Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    if [ "$v" = auto ] && [ -n "${4:-}" ]; then
+        set_config "$1"
+    else
+        v=${v#\#}
+        [[ "$v" =~ ^[0-9A-Fa-f]{6}$ ]] || { echo "Use six hex digits, like a6e3a1 or #a6e3a1." >&2; sleep 2; return 0; }
+        set_config "$1" "#$(lc "$v")"
+    fi
+    load_settings
+    restyle
+}
+
+colours_menu() {
+    local sel k pre name bn tn auto ov
+    while true; do
+        load_settings
+        sel=$(
+            for k in w:WORK:work p:PERSONAL:personal l:LOCAL:local s:SHELL:shell x:CODEX:codex; do
+                pre=$(echo "$k" | cut -d: -f2); name=$(echo "$k" | cut -d: -f3); k=${k%%:*}
+                bn="${pre}_HEX"; tn="${pre}_TINT_HEX"; auto=""
+                ov="TM_${pre}_TINT"; [ -z "${!ov:-}" ] && auto=" (auto)"
+                printf 'Q:%sb\t%s  %s %-8s %-10s %s%s\n' "$k" "$(hex_bgesc "${!bn}")" "$C_OFF" "$name" "bar colour" "${!bn}" ""
+                printf 'Q:%st\t%s  %s %-8s %-10s %s%s\n' "$k" "$(hex_bgesc "${!tn}")" "$C_OFF" "$name" "tint" "${!tn}" "$auto"
+            done
+            printf 'Q:r\t%sreset all colours to defaults%s\n' "$C_DIM" "$C_OFF"
+        ) 
+        sel=$(printf '%s\n' "$sel" | fzf "${FZF_OPTS[@]}" --border-label=' tm · colours ' --header='Enter edit · Esc back') || return 0
+        k=${sel%%$'\t'*}; k=${k#Q:}
+        case "$k" in
+            r) for pre in WORK PERSONAL LOCAL SHELL CODEX; do set_config "TM_${pre}_COLOUR"; set_config "TM_${pre}_TINT"; done; load_settings; restyle ;;
+            ?b|?t)
+                case "${k:0:1}" in w) pre=WORK ;; p) pre=PERSONAL ;; s) pre=SHELL ;; l) pre=LOCAL ;; *) pre=CODEX ;; esac
+                if [ "${k:1:1}" = b ]; then bn="${pre}_HEX"; ask_colour "TM_${pre}_COLOUR" "$pre bar colour" "${!bn}"
+                else tn="${pre}_TINT_HEX"; ask_colour "TM_${pre}_TINT" "$pre background tint" "${!tn}" auto; fi
+                ;;
+        esac
+    done
+}
+
+# --- local model (Strata) ------------------------------------------------------------
+# local_test: does Strata answer at the configured address? Any HTTP reply counts.
+local_test() {
+    local url code
+    url=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')
+    echo "Trying $url …"
+    code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$url/" 2>/dev/null)
+    if [ -n "$code" ] && [ "$code" != 000 ]; then
+        echo "  ✓ Strata answers (HTTP $code)"
+    else
+        echo "  ✗ No answer. Is the machine on Tailscale (tailscale status) and Strata running on that port?"
+    fi
+}
+
+# ask_local_url: a host, host:port or full URL; a bare host gets http:// and :8080.
+ask_local_url() {
+    local v cur
+    cur=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')
+    read -erp "Strata address [$cur] (Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    v=${v%/}
+    [[ "$v" =~ ^(https?://)?[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { echo "Give a name or address, e.g. mybox.tailnet.ts.net or http://100.64.0.1:8080." >&2; sleep 2; return 0; }
+    case "$v" in http://*|https://*) ;; *) v="http://$v" ;; esac
+    [[ "${v#*://}" == *:* ]] || v="$v:8080"
+    set_config TM_LOCAL_URL "$v"
+    load_settings
+    local_test
+    pause
+}
+
+# ask_local_value <KEY> <what> <current>: a model name or token (no spaces or quotes).
+ask_local_value() {
+    local v
+    read -erp "$2 [$3] (Enter = keep): " v || return 0
+    [ -z "$v" ] && return 0
+    [[ "$v" =~ ^[A-Za-z0-9._:@/-]+$ ]] || { echo "No spaces or quotes, please." >&2; sleep 2; return 0; }
+    set_config "$1" "$v"
+    load_settings
+}
+
+settings_menu() {
+    local sel url model
+    while true; do
+        load_settings
+        url=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p'); model=$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p'); model=${model:-(not set)}
+        sel=$(printf 'G:rm\t%-26s %s\nG:pr\t%-26s %s\nG:cl\tcolours\nG:lu\t%s%-26s %s%s\nG:lm\t%s%-26s %s%s\nG:lt\t%s%-26s %s%s\nG:lx\t%stest the local model connection%s\nG:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset account names to defaults%s\n' \
+                  "remote machines" "$(remote_names | paste -sd' ' -)" \
+                  "projects folder" "$(echo "$PROJECTS_ROOT" | sed "s|^$HOME|~|")" \
+                  "$C_LOCAL" "local model address" "$url" "$C_OFF" "$C_LOCAL" "local model name" "$model" "$C_OFF" \
+                  "$C_LOCAL" "local model token" "$([ -n "${TM_LOCAL_TOKEN:-}" ] && echo '(set)' || echo '(default)')" "$C_OFF" "$C_LOCAL" "$C_OFF" \
+                  "$C_WORK" "work account name" "$WORK_LABEL" "$C_OFF" "$C_WORK" "work session prefix" "$WORK_PREFIX" "$C_OFF" \
+                  "$C_PERSONAL" "personal account name" "$PERSONAL_LABEL" "$C_OFF" "$C_PERSONAL" "personal session prefix" "$PERSONAL_PREFIX" "$C_OFF" \
+                  "$C_DIM" "$C_OFF" |
+              fzf "${FZF_OPTS[@]}" --border-label=' tm · settings ' --header='Enter edit · Esc back') || return 0
+        case "${sel%%$'\t'*}" in
+            G:rm) remotes_menu ;;
+            G:pr) ask_projects_root ;;
+            G:cl) colours_menu ;;
+            G:lu) ask_local_url ;;
+            G:lm) ask_local_value TM_LOCAL_MODEL 'Local model name' "${TM_LOCAL_MODEL:-}" ;;
+            G:lt) ask_local_value TM_LOCAL_TOKEN 'Local model token' "${TM_LOCAL_TOKEN:-strata}" ;;
+            G:lx) local_test; pause ;;
+            G:wl) ask_setting TM_WORK_LABEL 'Work account name' "$WORK_LABEL" label ;;
+            G:wp) ask_setting TM_WORK_PREFIX 'Work session prefix' "$WORK_PREFIX" prefix "$PERSONAL_PREFIX" ;;
+            G:pl) ask_setting TM_PERSONAL_LABEL 'Personal account name' "$PERSONAL_LABEL" label ;;
+            G:pp) ask_setting TM_PERSONAL_PREFIX 'Personal session prefix' "$PERSONAL_PREFIX" prefix "$WORK_PREFIX" ;;
+            G:r)
+                for k in TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX; do set_config "$k"; done
+                load_settings
+                tmux list-sessions >/dev/null 2>&1 && "$(dirname "$SELF")/tmux-account-style" all
+                ;;
+        esac
+    done
+}
+
+# close_session <key>: end a session (S:<session> or R:<remote>:<session>) after a y/N check.
+close_session() {
+    local key=$1 where="" s ans
+    case "$key" in
+        S:*) s=${key#S:} ;;
+        R:*) s=${key#R:}; where=${s%%:*}; s=${s#*:} ;;
+        *) return 0 ;;
+    esac
+    [ -z "$where" ] && [ -n "${TMUX:-}" ] && [ "$(tmux display-message -p '#{session_name}')" = "$s" ] &&
+        echo "That's the session tm is running in; closing it closes tm too."
+    read -rp "Close $s${where:+ on $where}? Claude and anything else running in it stop. [y/N] " ans || return 0
+    [ "$ans" = y ] || [ "$ans" = Y ] || return 0
+    if [ -n "$where" ]; then
+        rsh "$where" tmux kill-session -t "=$s" || { echo "Couldn't close $s on $where" >&2; sleep 2; }
+    else
+        tmux kill-session -t "=$s"
+    fi
+}
+
+# stop_all: end every local session (the whole tmux server) after a y/N check.
+stop_all() {
+    local n ans
+    n=$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')
+    [ "$n" -gt 0 ] || return 0
+    [ -n "${TMUX:-}" ] && echo "tm is running inside one of them, so it closes too."
+    read -rp "Stop all $n local sessions? Claude and anything else running in them stop. [y/N] " ans || return 0
+    [ "$ans" = y ] || [ "$ans" = Y ] || return 0
+    tmux kill-server
+}
+
+while true; do
+    load_settings
+    # --expect: the first line of fzf's output is the key that ended it (empty for Enter).
+    sel=$(main_list | fzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' --expect=ctrl-x \
+              --header='Enter open · ^X close · Esc quit · ^R refresh') || exit 0
+    pressed=${sel%%$'\n'*}; sel=${sel#*$'\n'}
+    key=${sel%%$'\t'*}
+    if [ "$pressed" = ctrl-x ]; then close_session "$key"; continue; fi
+    case "$key" in
+        S:*) go_to "${key#S:}" ;;
+        R:*) rest=${key#R:}; go_remote "${rest%%:*}" "${rest#*:}" ;;
+        N:*) new_session "${key#N:}" ;;
+        G:*) settings_menu ;;
+        A:) stop_all ;;
+    esac
+done

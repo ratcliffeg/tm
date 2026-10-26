@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Claude Code on the personal account (separate config dir from the work login in ~/.claude)
+CLAUDE_CONFIG_DIR="$HOME/.claude-personal" exec claude "$@"

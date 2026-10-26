@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Recreate the tmux sessions recorded by tmux-save, resuming each Claude conversation
+# with Remote Control on (named after the session, so it shows up on claude.ai/code).
+# Codex sessions (CX-*) come back with `codex resume --last` in their folder. Local-model
+# sessions (~/.claude-local) get Strata's address back from claude-local, without Remote Control.
+# Runs once at boot/login (tmux-restore.service on Linux, tm.restore launchd agent on macOS); safe to run by hand, it skips sessions that exist.
+set -u
+snapshot="${XDG_STATE_HOME:-$HOME/.local/state}/tmux-sessions/sessions.tsv"
+[ -s "$snapshot" ] || exit 0
+
+while IFS= read -r line; do
+  # Tab is IFS whitespace, so `read` would merge empty fields; split on a non-whitespace byte.
+  line=${line//$'\t'/$'\x1f'}
+  IFS=$'\x1f' read -r name cwd id config_dir <<<"$line"
+  [ -n "$name" ] || continue
+  tmux has-session -t "=$name" 2>/dev/null && continue
+  [ -d "$cwd" ] || cwd="$HOME"
+  # Sessions on another account (e.g. ~/.claude-personal) get CLAUDE_CONFIG_DIR back.
+  env_args=()
+  [ -n "${config_dir:-}" ] && env_args=(-e "CLAUDE_CONFIG_DIR=$config_dir")
+  rc=" --remote-control '$name'"
+  case "${config_dir:-}" in
+    *claude-local)
+      rc=""
+      while IFS= read -r e; do env_args+=(-e "$e"); done < <("$(dirname "$0")/claude-local" --env 2>/dev/null)
+      ;;
+  esac
+  # ${a[@]+...}: bash 3.2 (macOS) errors on an empty array under set -u.
+  sid=$(tmux new-session -d -P -F '#{session_id}' -s "$name" -c "$cwd" ${env_args[@]+"${env_args[@]}"})
+  if [ -n "$id" ]; then
+    tmux send-keys -t "$sid" "claude --resume $id$rc" Enter
+  else
+    # Codex sessions (CX-<FOLDER>): continue the most recent conversation in that folder.
+    case "$name" in CX-*) command -v codex >/dev/null && tmux send-keys -t "$sid" "codex resume --last" Enter ;; esac
+  fi
+  echo "restored $name ($cwd)${id:+ claude $id}${config_dir:+ [$config_dir]}"
+done <"$snapshot"
