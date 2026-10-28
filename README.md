@@ -46,13 +46,16 @@ changed.
 
 | | Linux | macOS |
 |---|---|---|
-| tmux, fzf | `sudo apt install tmux fzf` | `brew install tmux fzf` |
-| bash | system bash | `brew install bash` recommended (macOS ships 3.2) |
+| tmux (needed) | `sudo apt install tmux` | any install method, e.g. `brew install tmux` or `sudo port install tmux` |
+| fzf (recommended) | `sudo apt install fzf` | e.g. `brew install fzf` or `sudo port install fzf` |
+| bash | system bash | system bash works (3.2); a newer one (`brew install bash`) is nicer |
 | Claude Code | on `PATH` | on `PATH` |
 | Optional | `codex` for Codex sessions; `curl` for the local model connection test; a local model server for local sessions | same |
 
-`install.sh` checks for tmux, fzf and Claude Code and, on macOS, offers to `brew install` anything
-missing. Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
+Homebrew isn't required on macOS: anything that puts tmux on your `PATH` will do (Homebrew,
+MacPorts, Nix, …). `install.sh` checks for tmux, fzf and Claude Code, offers to `brew install`
+what's missing if you have Homebrew, and otherwise tells you what to install. Without fzf, `tm`
+falls back to a numbered text menu (`tm-text`).
 
 ### What install.sh does
 
@@ -67,7 +70,9 @@ missing. Without fzf, `tm` falls back to a numbered text menu (`tm-text`).
   - **Linux:** systemd user units `tmux-save.timer` (every minute) and `tmux-restore.service` (at
     boot; needs `loginctl enable-linger $USER` to run before you log in).
   - **macOS:** launchd agents `tm.save` (every minute) and `tm.restore` (at login), in
-    `~/Library/LaunchAgents`. Logs: `~/Library/Logs/tm-*.log`.
+    `~/Library/LaunchAgents`. Logs: `~/Library/Logs/tm-*.log`. They look for tmux, `claude` and
+    `codex` where they were when you ran `install.sh`, so re-run it if you install those
+    somewhere else later.
 
 `./uninstall.sh` removes all of that again. It leaves sessions, logins and settings in place.
 

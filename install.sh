@@ -50,17 +50,22 @@ if [ "$OS" = Darwin ]; then
     bash_major=$(bash -c 'echo ${BASH_VERSINFO[0]}')
     [ "$bash_major" -lt 4 ] && missing+=(bash)
 fi
+# tmux is needed; fzf (else a text menu) and a newer bash on macOS are nice to have.
 if [ ${#missing[@]} -gt 0 ]; then
     if [ "$OS" = Darwin ] && command -v brew >/dev/null; then
         if [ "$(ask "Install ${missing[*]} with Homebrew?" y)" = y ]; then
             brew install "${missing[@]}"
         fi
     else
-        warn "Missing: ${missing[*]}"
+        warn "Missing: ${missing[*]} (tmux is needed; fzf and a newer bash are optional)"
         [ "$OS" = Linux ] && warn "Install with: sudo apt install ${missing[*]}"
-        [ "$OS" = Darwin ] && warn "Install Homebrew (https://brew.sh), then: brew install ${missing[*]}"
+        if [ "$OS" = Darwin ]; then
+            warn "Install them any way you like, e.g. Homebrew (brew install ${missing[*]})"
+            warn "or MacPorts (sudo port install ${missing[*]}), then re-run install.sh."
+        fi
     fi
 fi
+command -v tmux >/dev/null || warn "tmux not found on PATH: tm won't work until it's installed."
 command -v claude >/dev/null || warn "Claude Code not found on PATH (https://claude.com/claude-code)"
 
 # --- scripts --------------------------------------------------------------------------
@@ -143,7 +148,13 @@ if [ "$SERVICES" = 1 ]; then
         say "Installing launchd agents (snapshot every minute, restore at login)"
         agents="$HOME/Library/LaunchAgents"
         mkdir -p "$agents" "$HOME/Library/Logs"
-        path="$BIN:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        # launchd starts jobs with a bare PATH: give them the folders tmux, claude and codex are
+        # in (however they were installed), then the usual Homebrew and MacPorts ones.
+        path="$BIN"
+        for d in $(for c in tmux claude codex bash; do command -v "$c" 2>/dev/null; done | xargs -n1 dirname 2>/dev/null) \
+                 /opt/homebrew/bin /usr/local/bin /opt/local/bin /usr/bin /bin; do
+            case ":$path:" in *":$d:"*) ;; *) path="$path:$d" ;; esac
+        done
         cat >"$agents/tm.save.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
