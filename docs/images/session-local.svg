@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="902" height="562" viewBox="0 0 902 562">
+<style>text{font-family:"JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;font-size:14px;white-space:pre}</style>
+<rect width="100%" height="100%" rx="10" fill="#1e1e2e" stroke="#45475a"/>
+<circle cx="18" cy="15" r="6" fill="#f38ba8"/><circle cx="38" cy="15" r="6" fill="#f9e2af"/><circle cx="58" cy="15" r="6" fill="#a6e3a1"/>
+<text x="451" y="20" fill="#7f849c" text-anchor="middle">L-API-SERVER (myhost)</text>
+<rect x="14.0" y="44.0" width="336.5" height="18.5" fill="#1e1825"/>
+<text x="14.0" y="57.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">ANTHROPIC_BASE_URL=http://127.0.0.1:8080</text>
+<rect x="14.0" y="62.0" width="218.9" height="18.5" fill="#1e1825"/>
+<text x="14.0" y="75.5" textLength="218.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">ANTHROPIC_AUTH_TOKEN=local</text>
+<rect x="14.0" y="80.0" width="311.3" height="18.5" fill="#1e1825"/>
+<text x="14.0" y="93.5" textLength="310.8" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072</text>
+<rect x="14.0" y="98.0" width="286.1" height="18.5" fill="#1e1825"/>
+<text x="14.0" y="111.5" textLength="285.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">CLAUDE_CODE_MAX_OUTPUT_TOKENS=4096</text>
+<rect x="14.0" y="116.0" width="235.7" height="18.5" fill="#1e1825"/>
+<text x="14.0" y="129.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1">me@myhost</text>
+<text x="89.6" y="129.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">:</text>
+<text x="98.0" y="129.5" textLength="142.8" lengthAdjust="spacingAndGlyphs" fill="#89b4fa">~/Code/api-server</text>
+<text x="240.8" y="129.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">$</text>
+<rect x="14.0" y="530.0" width="874.1" height="18.5" fill="#cba6f7"/>
+<text x="14.0" y="543.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e" font-weight="bold"> LOCAL </text>
+<text x="72.8" y="543.5" textLength="201.6" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">· L-API-SERVER (myhost) </text>
+<text x="274.4" y="543.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e" font-weight="bold">0:bash*</text>
+<text x="333.2" y="543.5" textLength="554.4" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">                                          &quot;myhost&quot; 12:04 28-Oct-26</text>
+</svg>

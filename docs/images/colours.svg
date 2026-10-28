@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="902" height="562" viewBox="0 0 902 562">
+<style>text{font-family:"JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;font-size:14px;white-space:pre}</style>
+<rect width="100%" height="100%" rx="10" fill="#1e1e2e" stroke="#45475a"/>
+<circle cx="18" cy="15" r="6" fill="#f38ba8"/><circle cx="38" cy="15" r="6" fill="#f9e2af"/><circle cx="58" cy="15" r="6" fill="#a6e3a1"/>
+<text x="451" y="20" fill="#7f849c" text-anchor="middle">tm · colours</text>
+<text x="14.0" y="57.5" textLength="378.0" lengthAdjust="spacingAndGlyphs" fill="#6c7086">╭────────────────────────────────────────────</text>
+<text x="392.0" y="57.5" textLength="117.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> tm · colours </text>
+<text x="509.6" y="57.5" textLength="378.0" lengthAdjust="spacingAndGlyphs" fill="#6c7086">────────────────────────────────────────────╮</text>
+<text x="14.0" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="75.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f5c2e7" font-weight="bold">&gt;</text>
+<text x="316.4" y="75.5" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#afaf87">11/11</text>
+<text x="366.8" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="383.6" y="75.5" textLength="487.2" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">Status bar and window background for this kind of session:</text>
+<text x="870.8" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="93.5" textLength="176.4" lengthAdjust="spacingAndGlyphs" fill="#7f849c">Enter edit · Esc back</text>
+<text x="366.8" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="98.0" width="17.3" height="18.5" fill="#303030"/>
+<rect x="47.6" y="98.0" width="17.3" height="18.5" fill="#a6e3a1"/>
+<rect x="64.4" y="98.0" width="235.7" height="18.5" fill="#303030"/>
+<rect x="383.6" y="98.0" width="193.7" height="18.5" fill="#a6e3a1"/>
+<text x="14.0" y="111.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="111.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f5c2e7" font-weight="bold">&gt;</text>
+<text x="47.6" y="111.5" textLength="252.0" lengthAdjust="spacingAndGlyphs" fill="#e4e4e4" font-weight="bold">   work     bar colour #a6e3a1</text>
+<text x="366.8" y="111.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="383.6" y="111.5" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">  WORK · session name  </text>
+<text x="870.8" y="111.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="116.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="116.0" width="17.3" height="18.5" fill="#16271b"/>
+<rect x="383.6" y="116.0" width="395.3" height="18.5" fill="#16271b"/>
+<text x="14.0" y="129.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="129.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     work     tint       #16271b (auto) </text>
+<text x="366.8" y="129.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="383.6" y="129.5" textLength="487.2" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">  window background, as terminal text sees it             </text>
+<text x="870.8" y="129.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="134.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="134.0" width="17.3" height="18.5" fill="#89b4fa"/>
+<text x="14.0" y="147.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="147.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     personal bar colour #89b4fa        </text>
+<text x="366.8" y="147.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="147.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="152.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="152.0" width="17.3" height="18.5" fill="#16213a"/>
+<text x="14.0" y="165.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="165.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     personal tint       #16213a (auto) </text>
+<text x="366.8" y="165.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="383.6" y="165.5" textLength="487.2" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">Status bar #a6e3a1    Tint #16271b                        </text>
+<text x="870.8" y="165.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="170.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="170.0" width="17.3" height="18.5" fill="#cba6f7"/>
+<text x="14.0" y="183.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="183.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     local    bar colour #cba6f7        </text>
+<text x="366.8" y="183.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="183.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="188.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="188.0" width="17.3" height="18.5" fill="#1e1825"/>
+<text x="14.0" y="201.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="201.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     local    tint       #1e1825 (auto) </text>
+<text x="366.8" y="201.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="201.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="206.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="206.0" width="17.3" height="18.5" fill="#9399b2"/>
+<text x="14.0" y="219.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="219.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     shell    bar colour #9399b2        </text>
+<text x="366.8" y="219.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="219.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="224.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="237.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="237.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     shell    tint       #1e1e2e (auto) </text>
+<text x="366.8" y="237.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="237.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="242.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="242.0" width="17.3" height="18.5" fill="#fab387"/>
+<text x="14.0" y="255.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="255.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     codex    bar colour #fab387        </text>
+<text x="366.8" y="255.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="255.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="260.0" width="8.9" height="18.5" fill="#303030"/>
+<rect x="47.6" y="260.0" width="17.3" height="18.5" fill="#2b2016"/>
+<text x="14.0" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="273.5" textLength="336.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">     codex    tint       #2b2016 (auto) </text>
+<text x="366.8" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="278.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="291.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="291.5" textLength="243.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">reset all colours to defaults</text>
+<text x="366.8" y="291.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="291.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="309.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="309.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="309.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="327.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="327.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="327.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="345.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="345.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="345.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="363.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="363.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="363.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="381.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="381.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="381.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="399.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="399.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="399.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="417.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="417.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="417.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="435.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="435.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="435.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="453.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="453.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="453.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="471.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="471.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="471.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="489.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="489.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="489.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="507.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="507.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="507.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="525.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="366.8" y="525.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="525.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="543.5" textLength="873.6" lengthAdjust="spacingAndGlyphs" fill="#6c7086">╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
+</svg>
