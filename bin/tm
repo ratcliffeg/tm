@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Full-screen tmux session picker (fzf): sessions on the left, a view of the highlighted
 # session's screen on the right. Also starts new Claude or shell sessions on the work
-# account (~/.claude) or personal account (~/.claude-personal), or on a local model (Strata,
-# via claude-local and ~/.claude-local).
+# account (~/.claude) or personal account (~/.claude-personal), or on a local model server
+# (Strata, Ollama, ...; via claude-local and ~/.claude-local).
 # Sessions are named W-<FOLDER> (work) / P-<FOLDER> (personal) / L-<FOLDER> (local model), upper
 # case; work and personal Claude start with Remote Control on, named after the session.
 # Falls back to the text menu (tm-text) when fzf isn't installed.
@@ -40,7 +40,7 @@ PERSONAL_DIR="$HOME/.claude-personal"
 LOCAL_DIR="$HOME/.claude-local"
 # fzf calls this script back for previews; no readlink -f on older macOS.
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-# Environment for local-model sessions (Strata address, model, token), from claude-local.
+# Environment for local-model sessions (server address, model, token), from claude-local.
 local_env() { "$(dirname "$SELF")/claude-local" --env; }
 
 command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
@@ -229,10 +229,12 @@ preview() {
         G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
         G:r) printf 'Back to WORK / W and PERSONAL / P.\n' ;;
         G:cl) printf 'The status-bar colour and the dark background tint for work, personal, shell,\nCodex and local-model sessions. Set a bar colour and the tint follows (or set it yourself).\n' ;;
-        G:lu) printf 'Where the Strata server is: a Tailscale name or address, optionally with a\nport, or a full URL. A bare name gets http:// and port 8080.\nClaude Code adds /v1/messages itself.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
-        G:lm) printf 'The model name local sessions send: Strata'"'"'s name for the model it has\nloaded (it shows it in its Claude connection settings). Used for background\ncalls too. Not set: Claude Code'"'"'s usual model names.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p' | grep . || echo '(not set)')" ;;
-        G:lt) printf 'Strata'"'"'s API key (sk-strata-...), from its Claude connection settings.\nKept in %s, readable only by you.\n' "$(echo "$TM_CONFIG" | sed "s|^$HOME|~|")" ;;
-        G:lx) printf 'Check that the Strata server answers at the address above.\n' ;;
+        G:lu) printf 'Where the local model server is (Strata, Ollama, ... anything with an\nAnthropic-compatible API): a name or address, optionally with a port, or a\nfull URL. A bare name gets http:// and port 8080 (Ollama uses 11434).\nClaude Code adds /v1/messages itself.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
+        G:lm) printf 'The model name local sessions send, for background calls too. Not set:\nClaude Code'"'"'s usual names, which a server running a single model (e.g.\nStrata) ignores. Ollama needs the name of a model it has pulled.\n\nCurrently: %s\n' "$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p' | grep . || echo '(not set)')" ;;
+        G:lt) printf 'The server'"'"'s API key, if it needs one (e.g. Strata'"'"'s sk-strata-...).\nWithout one any value works. Kept in %s, readable only by you.\n' "$(echo "$TM_CONFIG" | sed "s|^$HOME|~|")" ;;
+        G:lc) printf 'The most context (prompt + conversation) local sessions send, in tokens.\nMatch the model'"'"'s context window as the server runs it. Default 131072.\n' ;;
+        G:lo) printf 'The most output local sessions ask for in one reply, in tokens. Claude\nCode otherwise asks for more than most local models return. Default 4096.\n' ;;
+        G:lx) printf 'Check that the local model server answers at the address above.\n' ;;
         Q:r) printf 'Back to the built-in colours.\n' ;;
         Q:*)
             k=${key#Q:}
@@ -248,7 +250,7 @@ preview() {
         E:*) printf 'Change %s for this remote.\n' "${key#E:}" ;;
         K:cw) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_WORK" "$WORK_LABEL" "$C_OFF" "$WORK_PREFIX" ;;
         K:cp) printf '%sNew Claude session — %s account%s\n\nNamed %s-<FOLDER>, Remote Control on.\n' "$C_PERSONAL" "$PERSONAL_LABEL" "$C_OFF" "$PERSONAL_PREFIX" ;;
-        K:cl) printf '%sNew Claude session — local model%s\n\nClaude Code on the Strata server at\n%s\nNamed L-<FOLDER>. No Remote Control.\n' "$C_LOCAL" "$C_OFF" "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
+        K:cl) printf '%sNew Claude session — local model%s\n\nClaude Code on the local model server at\n%s\nNamed L-<FOLDER>. No Remote Control.\n' "$C_LOCAL" "$C_OFF" "$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')" ;;
         K:x)  printf '%sNew Codex session%s\n\nOpenAI Codex in the chosen folder. Named CX-<FOLDER>.\n' "$C_CODEX" "$C_OFF" ;;
         K:s)  printf '%sNew shell session%s\n\nA plain terminal, no Claude. Named S-<FOLDER>.\n' "$C_SHELL" "$C_OFF" ;;
         RD:*)
@@ -371,8 +373,8 @@ new_session() {
     if [ "$kind" = x ] && [ -z "$name" ] && ! command -v codex >/dev/null; then
         echo "Codex isn't installed on this machine." >&2; sleep 2; return 0
     fi
-    # Strata's address, model and token, put on the session so a plain `claude` in it (after
-    # Claude exits) still talks to Strata. A remote with tm installed uses its own instead.
+    # The server's address, model and token, put on the session so a plain `claude` in it (after
+    # Claude exits) still talks to it. A remote with tm installed uses its own instead.
     if [ "$kind" = cl ]; then while IFS= read -r e; do env+=("$e"); done < <(local_env); fi
     if [ -z "$name" ]; then
         dir=$(pick_folder "$title") || return 0
@@ -406,7 +408,7 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
     [ "$acct" = personal ] && args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal")
     if [ "$acct" = local ]; then
         args+=(-e "CLAUDE_CONFIG_DIR=$HOME/.claude-local")
-        # Its own Strata settings if tm is installed there (an address like 127.0.0.1 only
+        # Its own local model settings if tm is installed there (an address like 127.0.0.1 only
         # means the same thing on the machine it was set on); otherwise the ones passed in.
         cl=$(command -v claude-local || echo "$HOME/.local/bin/claude-local")
         if [ -x "$cl" ]; then
@@ -449,7 +451,7 @@ main_list() {
 set_config() {
     mkdir -p "$(dirname "$TM_CONFIG")"; touch "$TM_CONFIG"
     { grep -v "^$1=" "$TM_CONFIG" || true; [ -n "${2:-}" ] && printf '%s="%s"\n' "$1" "$2"; } >"$TM_CONFIG.tmp"
-    # It can hold Strata's API key.
+    # It can hold the local model server's API key.
     chmod 600 "$TM_CONFIG.tmp"
     mv "$TM_CONFIG.tmp" "$TM_CONFIG"
 }
@@ -640,17 +642,17 @@ colours_menu() {
     done
 }
 
-# --- local model (Strata) ------------------------------------------------------------
-# local_test: does Strata answer at the configured address? Any HTTP reply counts.
+# --- local model server ---------------------------------------------------------------
+# local_test: does the server answer at the configured address? Any HTTP reply counts.
 local_test() {
     local url code
     url=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')
     echo "Trying $url …"
     code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$url/" 2>/dev/null)
     if [ -n "$code" ] && [ "$code" != 000 ]; then
-        echo "  ✓ Strata answers (HTTP $code)"
+        echo "  ✓ The server answers (HTTP $code)"
     else
-        echo "  ✗ No answer. Is the machine on Tailscale (tailscale status) and Strata running on that port?"
+        echo "  ✗ No answer. Is the machine reachable (e.g. tailscale status) and the server running on that port?"
     fi
 }
 
@@ -658,7 +660,7 @@ local_test() {
 ask_local_url() {
     local v cur
     cur=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p')
-    read -erp "Strata address [$cur] (Enter = keep): " v || return 0
+    read -erp "Local model server address [$cur] (Enter = keep): " v || return 0
     [ -z "$v" ] && return 0
     v=${v%/}
     [[ "$v" =~ ^(https?://)?[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { echo "Give a name or address, e.g. mybox.tailnet.ts.net or http://100.64.0.1:8080." >&2; sleep 2; return 0; }
@@ -673,23 +675,38 @@ ask_local_url() {
 # ask_local_value <KEY> <what> <current>: a model name or token (no spaces or quotes).
 ask_local_value() {
     local v
-    read -erp "$2 [$3] (Enter = keep): " v || return 0
+    read -erp "$2 [$3] (Enter = keep, - = clear): " v || return 0
     [ -z "$v" ] && return 0
+    if [ "$v" = - ]; then set_config "$1"; load_settings; return 0; fi
     [[ "$v" =~ ^[A-Za-z0-9._:@/-]+$ ]] || { echo "No spaces or quotes, please." >&2; sleep 2; return 0; }
     set_config "$1" "$v"
     load_settings
 }
 
+# ask_local_number <KEY> <what> <current>: a token limit; "-" goes back to the default.
+ask_local_number() {
+    local v
+    read -erp "$2 [$3] (Enter = keep, - = default): " v || return 0
+    [ -z "$v" ] && return 0
+    if [ "$v" = - ]; then set_config "$1"; load_settings; return 0; fi
+    [[ "$v" =~ ^[1-9][0-9]{2,7}$ ]] || { echo "Use a whole number of tokens, e.g. 4096 or 131072." >&2; sleep 2; return 0; }
+    set_config "$1" "$v"
+    load_settings
+}
+
 settings_menu() {
-    local sel url model
+    local sel url model ctx out
     while true; do
         load_settings
         url=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p'); model=$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p'); model=${model:-(not set)}
-        sel=$(printf 'G:rm\t%-26s %s\nG:pr\t%-26s %s\nG:cl\tcolours\nG:lu\t%s%-26s %s%s\nG:lm\t%s%-26s %s%s\nG:lt\t%s%-26s %s%s\nG:lx\t%stest the local model connection%s\nG:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset account names to defaults%s\n' \
+        ctx=$(local_env | sed -n 's/^CLAUDE_CODE_MAX_CONTEXT_TOKENS=//p'); out=$(local_env | sed -n 's/^CLAUDE_CODE_MAX_OUTPUT_TOKENS=//p')
+        sel=$(printf 'G:rm\t%-26s %s\nG:pr\t%-26s %s\nG:cl\tcolours\nG:lu\t%s%-26s %s%s\nG:lm\t%s%-26s %s%s\nG:lt\t%s%-26s %s%s\nG:lc\t%s%-26s %s%s\nG:lo\t%s%-26s %s%s\nG:lx\t%stest the local model connection%s\nG:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset account names to defaults%s\n' \
                   "remote machines" "$(remote_names | paste -sd' ' -)" \
                   "projects folder" "$(echo "$PROJECTS_ROOT" | sed "s|^$HOME|~|")" \
                   "$C_LOCAL" "local model address" "$url" "$C_OFF" "$C_LOCAL" "local model name" "$model" "$C_OFF" \
-                  "$C_LOCAL" "local model token" "$([ -n "${TM_LOCAL_TOKEN:-}" ] && echo '(set)' || echo '(default)')" "$C_OFF" "$C_LOCAL" "$C_OFF" \
+                  "$C_LOCAL" "local model token" "$([ -n "${TM_LOCAL_TOKEN:-}" ] && echo '(set)' || echo '(default)')" "$C_OFF" \
+                  "$C_LOCAL" "local model context tokens" "$ctx" "$C_OFF" "$C_LOCAL" "local model output tokens" "$out" "$C_OFF" \
+                  "$C_LOCAL" "$C_OFF" \
                   "$C_WORK" "work account name" "$WORK_LABEL" "$C_OFF" "$C_WORK" "work session prefix" "$WORK_PREFIX" "$C_OFF" \
                   "$C_PERSONAL" "personal account name" "$PERSONAL_LABEL" "$C_OFF" "$C_PERSONAL" "personal session prefix" "$PERSONAL_PREFIX" "$C_OFF" \
                   "$C_DIM" "$C_OFF" |
@@ -700,7 +717,9 @@ settings_menu() {
             G:cl) colours_menu ;;
             G:lu) ask_local_url ;;
             G:lm) ask_local_value TM_LOCAL_MODEL 'Local model name' "${TM_LOCAL_MODEL:-}" ;;
-            G:lt) ask_local_value TM_LOCAL_TOKEN 'Local model token' "${TM_LOCAL_TOKEN:-strata}" ;;
+            G:lt) ask_local_value TM_LOCAL_TOKEN 'Local model token' "${TM_LOCAL_TOKEN:-local}" ;;
+            G:lc) ask_local_number TM_LOCAL_MAX_CONTEXT_TOKENS 'Local model context tokens' "$ctx" ;;
+            G:lo) ask_local_number TM_LOCAL_MAX_OUTPUT_TOKENS 'Local model output tokens' "$out" ;;
             G:lx) local_test; pause ;;
             G:wl) ask_setting TM_WORK_LABEL 'Work account name' "$WORK_LABEL" label ;;
             G:wp) ask_setting TM_WORK_PREFIX 'Work session prefix' "$WORK_PREFIX" prefix "$PERSONAL_PREFIX" ;;

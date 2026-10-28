@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Claude Code against a local model: a Strata server on this machine, or on another one reached
-# over e.g. Tailscale.
+# Claude Code against a local model: any server with an Anthropic-compatible API (Strata,
+# Ollama, ...) on this machine, or on another one reached over e.g. Tailscale.
 # Own config dir (~/.claude-local), so it never mixes with the work or personal logins.
 # The address, model and token come from tm's settings (~/.config/tm/config):
-#   TM_LOCAL_URL    Strata's base URL (Claude Code adds /v1/messages itself); default is
-#                   Strata's own default, http://127.0.0.1:8080
-#   TM_LOCAL_MODEL  model name to send (Strata's name for the loaded model); unset sends
-#                   Claude Code's usual model names
-#   TM_LOCAL_TOKEN  Strata's API key (sk-strata-...), sent as the bearer token
+#   TM_LOCAL_URL    the server's base URL (Claude Code adds /v1/messages itself); default
+#                   http://127.0.0.1:8080 (Strata's default; Ollama's is port 11434)
+#   TM_LOCAL_MODEL  model name to send; unset sends Claude Code's usual names, which servers
+#                   that run a single model (e.g. Strata) ignore. Ollama needs one it has.
+#   TM_LOCAL_TOKEN  the server's API key, sent as the bearer token (any value if it has none)
 #   TM_LOCAL_MAX_CONTEXT_TOKENS, TM_LOCAL_MAX_OUTPUT_TOKENS  limits to keep requests within
-#                   what Strata's model takes (defaults 131072 and 4096, as Strata suggests)
+#                   what the local model takes (defaults 131072 and 4096)
 #   claude-local [claude args...]   run Claude on the local model, right here
 #   claude-local --env              print the variables (KEY=value per line, without
 #                                   CLAUDE_CONFIG_DIR) for tm and tmux-restore to put on a session
@@ -17,10 +17,10 @@ f="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
 [ -f "$f" ] && . "$f"
 url="${TM_LOCAL_URL:-http://127.0.0.1:8080}"
 model="${TM_LOCAL_MODEL:-}"
-# The output limit matters: Claude Code otherwise asks for more than Strata will return.
+# The output limit matters: Claude Code otherwise asks for more than a local model will return.
 vars=(
     "ANTHROPIC_BASE_URL=${url%/}"
-    "ANTHROPIC_AUTH_TOKEN=${TM_LOCAL_TOKEN:-strata}"
+    "ANTHROPIC_AUTH_TOKEN=${TM_LOCAL_TOKEN:-local}"
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS=${TM_LOCAL_MAX_CONTEXT_TOKENS:-131072}"
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS=${TM_LOCAL_MAX_OUTPUT_TOKENS:-4096}"
     # No telemetry, error reporting or update checks to Anthropic from these sessions.
@@ -28,7 +28,7 @@ vars=(
     "DISABLE_TELEMETRY=1"
     "DISABLE_AUTOUPDATER=1"
 )
-# Every model slot gets the same name: Strata runs one model, so background calls share it.
+# Every model slot gets the same name, so background calls use the same local model.
 if [ -n "$model" ]; then
     for v in ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL \
              ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_SMALL_FAST_MODEL CLAUDE_CODE_SUBAGENT_MODEL; do

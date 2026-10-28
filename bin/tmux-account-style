@@ -60,9 +60,10 @@ style_session() {
         local)    bg=$LOCAL_BG label=LOCAL ;;
         *)        bg=$WORK_BG label=${TM_WORK_LABEL:-WORK} ;;
     esac
+    # The machine name in brackets, so a terminal shows where it's running at a glance.
     tmux set-option -t "$s" status-style "bg=$bg,fg=$FG" \; \
-         set-option -t "$s" status-left "#[bold] $label #[nobold]· #S " \; \
-         set-option -t "$s" status-left-length 40
+         set-option -t "$s" status-left "#[bold] $label #[nobold]· #S (#{host_short}) " \; \
+         set-option -t "$s" status-left-length 60
     # Keep windows already marked as the other account (prefix + P windows).
     for w in $(tmux list-windows -t "$s" -F '#{window_id}'); do
         wacct=$(tmux show-options -wqv -t "$w" @account)

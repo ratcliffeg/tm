@@ -2,7 +2,7 @@
 # Text-only tmux session menu: the fallback `tm` uses when fzf is not installed.
 #   - jump to any running tmux session
 #   - start Claude on the work account (~/.claude) or personal account (~/.claude-personal) in a project
-#   - start Claude on a local model (Strata, via claude-local and ~/.claude-local)
+#   - start Claude on a local model server (Strata, Ollama, ...; via claude-local and ~/.claude-local)
 #   - start a plain shell session
 # Sessions are named W-<PROJECT> (work) / P-<PROJECT> (personal), upper case.
 # Claude starts with Remote Control on, named after the session, so every session

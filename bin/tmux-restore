@@ -2,7 +2,7 @@
 # Recreate the tmux sessions recorded by tmux-save, resuming each Claude conversation
 # with Remote Control on (named after the session, so it shows up on claude.ai/code).
 # Codex sessions (CX-*) come back with `codex resume --last` in their folder. Local-model
-# sessions (~/.claude-local) get Strata's address back from claude-local, without Remote Control.
+# sessions (~/.claude-local) get the local model server's address back from claude-local, without Remote Control.
 # Runs once at boot/login (tmux-restore.service on Linux, tm.restore launchd agent on macOS); safe to run by hand, it skips sessions that exist.
 set -u
 snapshot="${XDG_STATE_HOME:-$HOME/.local/state}/tmux-sessions/sessions.tsv"
