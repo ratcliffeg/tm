@@ -10,6 +10,7 @@ your own sessions and machines.
 - [Start a session](#start-a-session)
 - [Inside a session](#inside-a-session)
 - [Local model sessions](#local-model-sessions)
+- [Token usage](#token-usage)
 - [Close sessions](#close-sessions)
 - [Settings](#settings)
 - [Other machines](#other-machines)
@@ -59,7 +60,7 @@ instead of starting a second one.
 ![A work session: the green status bar shows WORK, the session name and the machine](docs/images/session-work.svg)
 
 The status bar says which account the session is on, its name, and **which machine it's on**, in
-brackets: `WORK · W-MYPROJECT (myhost)`. The terminal's window or tab title shows the same
+brackets: `WORK · W-MYPROJECT (myhost)`. On the right: the account's [tokens](#token-usage) today. The terminal's window or tab title shows the same
 `W-MYPROJECT (myhost)`, so you can tell terminals apart without switching to them.
 
 - **Detach:** `prefix d` (the tmux prefix is Ctrl-B unless you've changed it). The session keeps
@@ -97,6 +98,22 @@ To set it up, open `⚙ settings`:
 
 Each machine keeps its own settings, because the address depends on where you are: `127.0.0.1`
 only means the server on the machine it runs on.
+
+## Token usage
+
+How much each account has used shows up in three places:
+
+- **The status bar** of every Claude session: today's tokens for its account, on the right
+  (see [Inside a session](#inside-a-session)).
+- **The preview's title** in the menu: today's tokens for the highlighted session's folder.
+- **`▤  token usage`** in the menu: every machine and account, for today, 7 days, 30 days and
+  everything recorded, with the busiest folders of the highlighted account underneath.
+
+![The token usage screen: tokens per account for today, 7 and 30 days, and all recorded](docs/images/usage.svg)
+
+"in" is everything sent to the model, most of it cached context; "out" is what it wrote. The
+figures come from Claude Code's own records on each machine, and tm keeps daily totals, so the
+history goes back further than Claude Code keeps conversations.
 
 ## Close sessions
 

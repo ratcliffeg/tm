@@ -29,6 +29,21 @@ TM_PROJECTS_ROOT="$HOME/Code"
 TM_REMOTES="lxc=me@192.0.2.10"
 TM_LOCAL_URL="http://127.0.0.1:8080"
 EOF
+# Made-up token usage for the demo projects: one Claude Code-style reply record per line.
+fake_usage() { # <config dir> <project> <days ago> <replies> <scale>
+    local f="$1/projects/demo/$2.jsonl" day i
+    mkdir -p "${f%/*}"
+    day=$(date -d "-$3 days" +%Y-%m-%d 2>/dev/null || date -v-"$3"d +%Y-%m-%d)
+    for ((i = 1; i <= $4; i++)); do
+        printf '{"parentUuid":null,"message":{"id":"msg_%s_%s_%s","type":"message","role":"assistant","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}},"requestId":"req_%s_%s","type":"assistant","timestamp":"%sT10:%02d:00.000Z","cwd":"%s"}\n' \
+            "$2" "$3" "$i" "$((5 * $5))" "$((900 * $5))" "$((21000 * $5))" "$((350 * $5))" "$3" "$i" "$day" "$((i % 60))" "$HOME/Code/$2" >>"$f"
+    done
+}
+for d in 0 1 2 4 9 20; do fake_usage "$HOME/.claude" myproject "$d" 40 3; fake_usage "$HOME/.claude" website "$d" 15 2; done
+for d in 0 3 12; do fake_usage "$HOME/.claude-personal" notes "$d" 25 2; done
+for d in 1 5; do fake_usage "$HOME/.claude-local" api-server "$d" 30 1; done
+"$HOME/.local/bin/tm-usage" update
+
 # Demo shells: a plain prompt as a normal user would see it.
 cat >"$D/bashrc" <<'EOF'
 PS1='\[\e[38;2;166;227;161m\]me@myhost\[\e[0m\]:\[\e[38;2;137;180;250m\]\w\[\e[0m\]$ '
@@ -73,6 +88,8 @@ keys Escape; sleep 5                   # back to the session list (the offline r
 keys settings Enter;                   shot settings 'tm · settings'
 keys colours Enter;                    shot colours 'tm · colours'
 keys Escape Escape; sleep 5
+keys 'token usage' Enter; sleep 2; keys Down Down; shot usage 'tm · token usage'
+keys Escape; sleep 5
 keys S-WEBSITE C-x;                    shot close 'tm · close a session'
 keys Enter; sleep 5                    # = no
 keys W-MYPROJECT Enter;                shot session-work 'W-MYPROJECT (myhost)'

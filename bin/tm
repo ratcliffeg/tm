@@ -42,6 +42,9 @@ LOCAL_DIR="$HOME/.claude-local"
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # Environment for local-model sessions (server address, model, token), from claude-local.
 local_env() { "$(dirname "$SELF")/claude-local" --env; }
+# Token usage (tm-usage); other machines get the script itself over SSH, so they needn't have tm.
+USAGE="$(dirname "$SELF")/tm-usage"
+rusage() { local name=$1; shift; rrun "$name" "$(cat "$USAGE")" "$@" 2>/dev/null; }
 
 command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
 
@@ -232,6 +235,12 @@ preview() {
             ;;
         T:) echo "Type any folder path, with Tab completion. ~ works." ;;
         A:) printf 'Stop every tmux session on this machine (%s), and Claude and anything\nelse running in them. Asks first. Sessions on other machines keep running.\n\nThey won'"'"'t come back after a reboot either.\n' "$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')" ;;
+        U:) printf 'Tokens used by Claude on each machine and account: today, the last 7 and\n30 days, and everything tm has recorded. "in" is everything sent (new input\nand cache), "out" is what Claude wrote.\n' ;;
+        U:*)
+            rest=${key#U:}
+            printf 'Busiest folders, last 30 days (%s):\n\n' "${rest#*:}"
+            if [ -z "${rest%%:*}" ]; then "$USAGE" projects "${rest#*:}"; else rusage "${rest%%:*}" projects "${rest#*:}"; fi
+            ;;
         N:*) printf 'Start a new Claude or shell session %s.\n\nYou choose Claude (%s, %s or local model), Codex\nor a shell, then a folder.\n' "$([ -n "${key#N:}" ] && echo "on ${key#N:}" || echo locally)" "$(lc "$WORK_LABEL")" "$(lc "$PERSONAL_LABEL")" ;;
         G:wl|G:pl) printf 'The name shown beside sessions of this account, in the menu and the tmux\nstatus bar. Upper-cased. Existing sessions keep their names.\n' ;;
         G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
@@ -275,13 +284,16 @@ label() {
     case "$key" in
         S:*)
             s=${key#S:}
-            printf ' %s · %s · %s ' "$s" "$(tmux display-message -p -t "=$s:" '#{s|^'"$HOME"'|~|:pane_current_path}' 2>/dev/null)" \
-                "$(account_of "=$s:" | tr '[:lower:]' '[:upper:]')"
+            u=$("$USAGE" session "$s" 2>/dev/null)
+            printf ' %s · %s · %s %s' "$s" "$(tmux display-message -p -t "=$s:" '#{s|^'"$HOME"'|~|:pane_current_path}' 2>/dev/null)" \
+                "$(account_of "=$s:" | tr '[:lower:]' '[:upper:]')" "${u:+· $u }"
             ;;
         R:*)
             rest=${key#R:}
-            printf ' %s · %s · %s ' "${rest%%:*}" "${rest#*:}" \
-                "$(rsh "${rest%%:*}" tmux display-message -p -t "=${rest#*:}:" "'#{pane_current_path}'" 2>/dev/null | sed "s|^/home/[^/]*|~|")"
+            u=$(rusage "${rest%%:*}" session "${rest#*:}")
+            printf ' %s · %s · %s %s' "${rest%%:*}" "${rest#*:}" \
+                "$(rsh "${rest%%:*}" tmux display-message -p -t "=${rest#*:}:" "'#{pane_current_path}'" 2>/dev/null | sed "s|^/home/[^/]*|~|")" \
+                "${u:+· $u }"
             ;;
         D:*) printf ' %s ' "${key#D:}" | sed "s|$HOME|~|" ;;
         RD:*) rest=${key#RD:}; printf ' %s:%s ' "${rest%%:*}" "${rest#*:}" ;;
@@ -452,7 +464,47 @@ main_list() {
     tmux has-session 2>/dev/null && printf 'A:\t%s✕ stop all local sessions%s\n' "$C_DIM" "$C_OFF"
     remote_sections
     printf 'X:\t%s──────────────────────────────────%s\n' "$C_DIM" "$C_OFF"
+    printf 'U:\t%s▤  token usage%s\n' "$C_DIM" "$C_OFF"
     printf 'G:\t%s⚙  settings%s\n' "$C_DIM" "$C_OFF"
+}
+
+# usage_lines <machine name|""> <file with tm-usage table output>: the usage screen's rows
+usage_lines() {
+    local name=$1 acct t d7 d30 all since c
+    while IFS=$'\t' read -r acct t d7 d30 all since; do
+        case "$acct" in personal) c=$C_PERSONAL ;; local) c=$C_LOCAL ;; *) c=$C_WORK ;; esac
+        printf 'U:%s:%s\t  %s%-9s%s %13s %13s %13s %13s  %ssince %s%s\n' "$name" "$acct" "$c" "$acct" "$C_OFF" \
+            "$t" "$d7" "$d30" "$all" "$C_DIM" "$since" "$C_OFF"
+    done <"$2"
+}
+
+# usage_menu: tokens per machine and account; the preview lists the busiest folders.
+usage_menu() {
+    local tmp name i=0 names=()
+    tmp=$(mktemp -d)
+    echo "Reading usage…"
+    "$USAGE" table >"$tmp/local" 2>/dev/null &
+    for name in $(remote_names); do
+        names+=("$name")
+        { remote_target "$name" >/dev/null && rusage "$name" table >"$tmp/r$i" || echo offline >"$tmp/r$i"; } &
+        i=$((i + 1))
+    done
+    wait
+    {
+        printf 'X:\t%s  %-9s %13s %13s %13s %13s%s\n' "$C_DIM" "account" "today" "7 days" "30 days" "all kept" "$C_OFF"
+        printf 'X:\t%s── local (%s) ──%s\n' "$C_DIM" "$(hostname -s 2>/dev/null || hostname)" "$C_OFF"
+        if [ -s "$tmp/local" ]; then usage_lines "" "$tmp/local"; else printf 'X:\t%s  (no usage yet)%s\n' "$C_DIM" "$C_OFF"; fi
+        for ((n = 0; n < i; n++)); do
+            if [ "$(cat "$tmp/r$n")" = offline ]; then
+                printf 'X:\t%s── %s (offline) ──%s\n' "$C_DIM" "${names[n]}" "$C_OFF"
+            else
+                printf 'X:\t%s── %s ──%s\n' "$C_DIM" "${names[n]}" "$C_OFF"
+                if [ -s "$tmp/r$n" ]; then usage_lines "${names[n]}" "$tmp/r$n"; else printf 'X:\t%s  (no usage)%s\n' "$C_DIM" "$C_OFF"; fi
+            fi
+        done
+    } | fzf "${FZF_OPTS[@]}" --border-label=' tm · token usage (in / out) ' --header='Esc back · ^R refresh preview' \
+            --preview-window='down,50%,border-top' >/dev/null
+    rm -rf "$tmp"
 }
 
 # set_config <KEY> [value]: write KEY="value" into the config file (no value removes it).
@@ -789,5 +841,6 @@ while true; do
         N:*) new_session "${key#N:}" ;;
         G:*) settings_menu ;;
         A:) stop_all ;;
+        U:) usage_menu ;;
     esac
 done

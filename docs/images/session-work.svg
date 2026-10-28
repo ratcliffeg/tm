@@ -1,17 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="902" height="562" viewBox="0 0 902 562">
+<svg xmlns="http://www.w3.org/2000/svg" width="893" height="562" viewBox="0 0 893 562">
 <style>text{font-family:"JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;font-size:14px;white-space:pre}</style>
 <rect width="100%" height="100%" rx="10" fill="#1e1e2e" stroke="#45475a"/>
 <circle cx="18" cy="15" r="6" fill="#f38ba8"/><circle cx="38" cy="15" r="6" fill="#f9e2af"/><circle cx="58" cy="15" r="6" fill="#a6e3a1"/>
-<text x="451" y="20" fill="#7f849c" text-anchor="middle">W-MYPROJECT (myhost)</text>
+<text x="447" y="20" fill="#7f849c" text-anchor="middle">W-MYPROJECT (myhost)</text>
 <rect x="14.0" y="44.0" width="344.9" height="18.5" fill="#16271b"/>
-<text x="14.0" y="57.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">bde0de9 (</text>
+<text x="14.0" y="57.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">5935c5c (</text>
 <text x="89.6" y="57.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#94e2d5" font-weight="bold">HEAD</text>
 <text x="123.2" y="57.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af"> -&gt; </text>
 <text x="156.8" y="57.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1" font-weight="bold">main</text>
 <text x="190.4" y="57.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">)</text>
 <text x="198.8" y="57.5" textLength="159.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> Add the login page</text>
 <rect x="14.0" y="62.0" width="176.9" height="18.5" fill="#16271b"/>
-<text x="14.0" y="75.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">e93eaa8</text>
+<text x="14.0" y="75.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">953cbc9</text>
 <text x="72.8" y="75.5" textLength="117.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> First version</text>
 <rect x="14.0" y="80.0" width="252.5" height="18.5" fill="#16271b"/>
 <text x="14.0" y="93.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1">me@myhost</text>
@@ -25,9 +25,9 @@
 <text x="89.6" y="129.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">:</text>
 <text x="98.0" y="129.5" textLength="134.4" lengthAdjust="spacingAndGlyphs" fill="#89b4fa">~/Code/myproject</text>
 <text x="232.4" y="129.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">$</text>
-<rect x="14.0" y="530.0" width="874.1" height="18.5" fill="#a6e3a1"/>
+<rect x="14.0" y="530.0" width="865.7" height="18.5" fill="#a6e3a1"/>
 <text x="14.0" y="543.5" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e" font-weight="bold"> WORK </text>
 <text x="64.4" y="543.5" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">· W-MYPROJECT (myhost) </text>
 <text x="257.6" y="543.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e" font-weight="bold">0:bash*</text>
-<text x="316.4" y="543.5" textLength="571.2" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">                                            &quot;myhost&quot; 12:03 28-Oct-26</text>
+<text x="316.4" y="543.5" textLength="562.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">                                    today 3.3M in · 52k out · 12:33</text>
 </svg>

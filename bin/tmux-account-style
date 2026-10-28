@@ -64,6 +64,14 @@ style_session() {
     tmux set-option -t "$s" status-style "bg=$bg,fg=$FG" \; \
          set-option -t "$s" status-left "#[bold] $label #[nobold]· #S (#{host_short}) " \; \
          set-option -t "$s" status-left-length 60
+    # Claude sessions: today's tokens for their account (tm-usage reads the history the save job
+    # updates each minute). Others keep tmux's default right-hand side.
+    case "$acct" in
+        work|personal|local)
+            tmux set-option -t "$s" status-right "#($(dirname "$0")/tm-usage bar $acct) · %H:%M " \; \
+                 set-option -t "$s" status-right-length 50 ;;
+        *) tmux set-option -u -t "$s" status-right \; set-option -u -t "$s" status-right-length ;;
+    esac
     # Keep windows already marked as the other account (prefix + P windows).
     for w in $(tmux list-windows -t "$s" -F '#{window_id}'); do
         wacct=$(tmux show-options -wqv -t "$w" @account)

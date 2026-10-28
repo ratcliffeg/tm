@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# Token usage of the Claude accounts on this machine, from Claude Code's own conversation files
+# (<config dir>/projects/*/*.jsonl; every reply records its token counts). Plain bash and awk.
+#   tm-usage update               re-read the conversations and add today's totals to the history
+#   tm-usage rows                 the history: day, account, folder, input, output, cache write,
+#                                 cache read, replies (tab-separated); updated first if stale
+#   tm-usage bar <account>        today's tokens for one account, short (for the tmux status bar)
+#   tm-usage folder <account> <dir>   today's tokens for one folder
+#   tm-usage session <tmux session>   the same for a session: its account and folder (tm's preview)
+#   tm-usage table                every account: today, 7 days, 30 days, all kept (for tm)
+#   tm-usage projects <account>   folders by tokens over the last 30 days (for tm)
+# Accounts: work (~/.claude), personal (~/.claude-personal), local (~/.claude-local).
+# Each reply is counted once (the files repeat some). Totals are kept in a history file, so
+# they outlast Claude Code removing old conversations, and are never lowered. "in" is
+# everything sent: new input plus cache writes and cache reads.
+# tm runs this on other machines over SSH as a script, so it needs nothing else from tm.
+set -u
+state="${XDG_STATE_HOME:-$HOME/.local/state}/tm"
+hist="$state/usage.tsv"
+
+# scan: one line per reply: account, reply id, local day, folder, input, output, cache write, cache read
+scan() {
+    local off acct dir
+    # Minutes east of UTC, so replies land on the local day.
+    off=$(date +%z | awk '{ s = substr($0, 1, 1) == "-" ? -1 : 1; print s * (substr($0, 2, 2) * 60 + substr($0, 4, 2)) }')
+    for acct in work personal local; do
+        case $acct in work) dir=$HOME/.claude ;; personal) dir=$HOME/.claude-personal ;; local) dir=$HOME/.claude-local ;; esac
+        [ -d "$dir/projects" ] || continue
+        # Only reply lines carry "usage":{ outside a string (inside one, the quotes are escaped).
+        find "$dir/projects" -name '*.jsonl' -exec grep -hF '"usage":{' {} + 2>/dev/null |
+            awk -v acct="$acct" -v off="$off" '
+            function num(s, key) { return match(s, "\"" key "\":[0-9]+") ? substr(s, RSTART + length(key) + 3, RLENGTH - length(key) - 3) + 0 : 0 }
+            function str(s, key) { return match(s, "\"" key "\":\"[^\"]*\"") ? substr(s, RSTART + length(key) + 4, RLENGTH - length(key) - 5) : "" }
+            function days(y, m, d,   e, yoe, doy) {          # days since 1970-01-01 (Hinnant)
+                y -= (m <= 2); e = int(y / 400); yoe = y - e * 400
+                doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+                return e * 146097 + yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy - 719468
+            }
+            function civil(z,   e, doe, yoe, y, doy, mp, d, m) {
+                z += 719468; e = int(z / 146097); doe = z - e * 146097
+                yoe = int((doe - int(doe / 1460) + int(doe / 36524) - int(doe / 146096)) / 365)
+                y = yoe + e * 400; doy = doe - (365 * yoe + int(yoe / 4) - int(yoe / 100))
+                mp = int((5 * doy + 2) / 153); d = doy - int((153 * mp + 2) / 5) + 1; m = mp + (mp < 10 ? 3 : -9)
+                return sprintf("%04d-%02d-%02d", y + (m <= 2), m, d)
+            }
+            {
+                p = index($0, "\"message\":{"); if (!p) next
+                pre = substr($0, 1, p); msg = substr($0, p)
+                u = substr($0, index($0, "\"usage\":{"))
+                # Top-level fields sit outside the message: after it (requestId, timestamp, cwd
+                # in current versions), or before it in some older ones.
+                q = index($0, "\"requestId\":"); post = q ? substr($0, q) : $0
+                cwd = str(post, "cwd"); if (cwd == "") cwd = str(pre, "cwd")
+                id = str(msg, "id") str(post, "requestId"); ts = str(post, "timestamp")
+                if (id == "" || ts == "") next
+                mins = substr(ts, 12, 2) * 60 + substr(ts, 15, 2) + off
+                z = days(substr(ts, 1, 4) + 0, substr(ts, 6, 2) + 0, substr(ts, 9, 2) + 0)
+                while (mins < 0) { mins += 1440; z-- }
+                while (mins >= 1440) { mins -= 1440; z++ }
+                printf "%s\t%s\t%s\t%s\t%.0f\t%.0f\t%.0f\t%.0f\n", acct, id, civil(z), cwd, \
+                    num(u, "input_tokens"), num(u, "output_tokens"), num(u, "cache_creation_input_tokens"), num(u, "cache_read_input_tokens")
+            }'
+    done
+}
+
+update() {
+    mkdir -p "$state"
+    local tmp
+    tmp=$(mktemp "$state/.usage.XXXXXX") || return 1
+    # Each reply once, summed per day/account/folder; then merged with the history, keeping
+    # the larger figure, so days whose conversations are gone keep their totals.
+    { scan | awk -F'\t' -v OFS='\t' '!seen[$1 FS $2]++ {
+            k = $3 OFS $1 OFS $4; i[k] += $5; o[k] += $6; w[k] += $7; r[k] += $8; n[k]++
+        } END { for (k in i) printf "new\t%s\t%.0f\t%.0f\t%.0f\t%.0f\t%.0f\n", k, i[k], o[k], w[k], r[k], n[k] }'
+      [ -f "$hist" ] && sed 's/^/old\t/' "$hist"; } |
+        awk -F'\t' -v OFS='\t' '{
+            k = $2 OFS $3 OFS $4
+            for (f = 5; f <= 9; f++) if ($f + 0 > v[k, f]) v[k, f] = $f + 0
+            keys[k] = 1
+        } END { for (k in keys) printf "%s\t%.0f\t%.0f\t%.0f\t%.0f\t%.0f\n", k, v[k, 5], v[k, 6], v[k, 7], v[k, 8], v[k, 9] }' |
+        sort >"$tmp" && mv "$tmp" "$hist"
+}
+
+# rows: the history, refreshed if it's over two minutes old (or missing).
+rows() {
+    if [ ! -f "$hist" ] || [ -n "$(find "$hist" -mmin +2 2>/dev/null)" ]; then update; fi
+    cat "$hist" 2>/dev/null
+}
+
+human() { awk '{ n = $1; if (n >= 1e9) printf "%.1fB", n / 1e9; else if (n >= 1e6) printf "%.1fM", n / 1e6; else if (n >= 1e3) printf "%.0fk", n / 1e3; else printf "%d", n }'; }
+
+# sums <from day> <to day|""> <account> [folder]: total in (input + cache) and out over the
+# matching history rows. Values go in through the environment, never into the awk program.
+sums() {
+    S=$1 E=$2 A=$3 F=${4:-} awk -F'\t' '$1 >= ENVIRON["S"] && (ENVIRON["E"] == "" || $1 <= ENVIRON["E"]) &&
+        $2 == ENVIRON["A"] && (ENVIRON["F"] == "" || $3 == ENVIRON["F"]) { i += $4 + $6 + $7; o += $5 }
+        END { printf "%.0f %.0f\n", i, o }'
+}
+
+# folder_line <account> <dir>: today's tokens for one folder, if any
+folder_line() {
+    local i o
+    [ -n "$2" ] || return 0
+    read -r i o < <(rows | sums "$today" "$today" "$1" "$2")
+    [ "$i$o" = 00 ] && return 0
+    printf 'today: %s in · %s out\n' "$(echo "$i" | human)" "$(echo "$o" | human)"
+}
+
+today=$(date +%Y-%m-%d)
+case "${1:-}" in
+    update) update ;;
+    rows) rows ;;
+    bar)
+        [ -f "$hist" ] || exit 0
+        read -r i o < <(sums "$today" "$today" "${2:-work}" <"$hist")
+        [ "$i$o" = 00 ] && exit 0
+        printf 'today %s in · %s out' "$(echo "$i" | human)" "$(echo "$o" | human)"
+        ;;
+    folder) folder_line "${2:-work}" "${3:-}" ;;
+    session)
+        # Account from the session's CLAUDE_CONFIG_DIR, folder from its active pane.
+        s=${2:-}; [ -n "$s" ] || exit 0
+        case "$(tmux show-environment -t "=$s" CLAUDE_CONFIG_DIR 2>/dev/null)" in
+            CLAUDE_CONFIG_DIR=*claude-personal*) acct=personal ;;
+            CLAUDE_CONFIG_DIR=*claude-local*) acct=local ;;
+            *) case "$s" in S-*|CX-*) exit 0 ;; esac; acct=work ;;
+        esac
+        folder_line "$acct" "$(tmux display-message -p -t "=$s:" '#{pane_current_path}' 2>/dev/null)"
+        ;;
+    table)
+        # account <TAB> today in/out <TAB> 7 days <TAB> 30 days <TAB> all kept, since <first day>
+        d7=$(date -d '-6 days' +%Y-%m-%d 2>/dev/null || date -v-6d +%Y-%m-%d)
+        d30=$(date -d '-29 days' +%Y-%m-%d 2>/dev/null || date -v-29d +%Y-%m-%d)
+        data=$(rows)
+        for acct in work personal local; do
+            echo "$data" | awk -F'\t' -v a="$acct" '$2 == a { f = 1 } END { exit !f }' || continue
+            line=$acct
+            for since in "$today" "$d7" "$d30" 0000; do
+                read -r i o < <(echo "$data" | sums "$since" "" "$acct")
+                line="$line	$(echo "$i" | human)/$(echo "$o" | human)"
+            done
+            printf '%s\t%s\n' "$line" "$(echo "$data" | awk -F'\t' -v a="$acct" '$2 == a { print $1; exit }')"
+        done
+        ;;
+    projects)
+        d30=$(date -d '-29 days' +%Y-%m-%d 2>/dev/null || date -v-29d +%Y-%m-%d)
+        rows | A="${2:-work}" S="$d30" awk -F'\t' '$2 == ENVIRON["A"] && $1 >= ENVIRON["S"] { i[$3] += $4 + $6 + $7; o[$3] += $5 }
+            END { for (f in i) printf "%.0f\t%.0f\t%s\n", i[f], o[f], f }' | sort -t'	' -k1,1nr | head -15 |
+            while IFS='	' read -r i o f; do
+                printf '%8s in %8s out   %s\n' "$(echo "$i" | human)" "$(echo "$o" | human)" "${f/#"$HOME"/\~}"
+            done
+        ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

@@ -7,6 +7,8 @@ set -u
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tmux-sessions"
 out="$state_dir/sessions.tsv"
 mkdir -p "$state_dir"
+# Token usage history for tm (tm-usage), kept up to date with the snapshot.
+"$(dirname "$0")/tm-usage" update 2>/dev/null
 
 if ! tmux ls >/dev/null 2>&1; then
   # No tmux server. During shutdown that's expected, so keep the last snapshot;

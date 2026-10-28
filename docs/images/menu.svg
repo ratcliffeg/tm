@@ -9,9 +9,9 @@
 <rect x="837.2" y="62.0" width="34.1" height="18.5" fill="#afaf87"/>
 <text x="14.0" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
 <text x="30.8" y="75.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f5c2e7" font-weight="bold">&gt;</text>
-<text x="316.4" y="75.5" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#afaf87">10/10</text>
+<text x="316.4" y="75.5" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#afaf87">11/11</text>
 <text x="366.8" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
-<text x="383.6" y="75.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">bde0de9 (</text>
+<text x="383.6" y="75.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">5935c5c (</text>
 <text x="459.2" y="75.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#94e2d5" font-weight="bold">HEAD</text>
 <text x="492.8" y="75.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af"> -&gt; </text>
 <text x="526.4" y="75.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1" font-weight="bold">main</text>
@@ -22,7 +22,7 @@
 <text x="14.0" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
 <text x="47.6" y="93.5" textLength="310.8" lengthAdjust="spacingAndGlyphs" fill="#7f849c">Enter open · ^X close · Esc quit · ..</text>
 <text x="366.8" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
-<text x="383.6" y="93.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">e93eaa8</text>
+<text x="383.6" y="93.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">953cbc9</text>
 <text x="442.4" y="93.5" textLength="428.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> First version                                     </text>
 <text x="870.8" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">││</text>
 <rect x="30.8" y="98.0" width="8.9" height="18.5" fill="#303030"/>
@@ -82,10 +82,12 @@
 <text x="870.8" y="255.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">││</text>
 <rect x="30.8" y="260.0" width="8.9" height="18.5" fill="#303030"/>
 <text x="14.0" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
-<text x="47.6" y="273.5" textLength="92.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">⚙  settings</text>
+<text x="47.6" y="273.5" textLength="117.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">▤  token usage</text>
 <text x="366.8" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
 <text x="870.8" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">││</text>
+<rect x="30.8" y="278.0" width="8.9" height="18.5" fill="#303030"/>
 <text x="14.0" y="291.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="291.5" textLength="92.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">⚙  settings</text>
 <text x="366.8" y="291.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
 <text x="870.8" y="291.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">││</text>
 <text x="14.0" y="309.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>

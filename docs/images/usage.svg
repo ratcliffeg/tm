@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="902" height="562" viewBox="0 0 902 562">
+<style>text{font-family:"JetBrains Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;font-size:14px;white-space:pre}</style>
+<rect width="100%" height="100%" rx="10" fill="#1e1e2e" stroke="#45475a"/>
+<circle cx="18" cy="15" r="6" fill="#f38ba8"/><circle cx="38" cy="15" r="6" fill="#f9e2af"/><circle cx="58" cy="15" r="6" fill="#a6e3a1"/>
+<text x="451" y="20" fill="#7f849c" text-anchor="middle">tm · token usage</text>
+<text x="14.0" y="57.5" textLength="310.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">╭────────────────────────────────────</text>
+<text x="324.8" y="57.5" textLength="243.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> tm · token usage (in / out) </text>
+<text x="568.4" y="57.5" textLength="319.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">─────────────────────────────────────╮</text>
+<text x="14.0" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="75.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f5c2e7" font-weight="bold">&gt;</text>
+<text x="837.2" y="75.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#afaf87">6/6</text>
+<text x="870.8" y="75.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="93.5" textLength="243.6" lengthAdjust="spacingAndGlyphs" fill="#7f849c">Esc back · ^R refresh preview</text>
+<text x="870.8" y="93.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="98.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="111.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="111.5" textLength="562.8" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">  account           today        7 days       30 days      all kept</text>
+<text x="870.8" y="111.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="116.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="129.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="129.5" textLength="168.0" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">── local (myhost) ──</text>
+<text x="870.8" y="129.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="134.0" width="731.3" height="18.5" fill="#303030"/>
+<text x="14.0" y="147.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="147.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f5c2e7" font-weight="bold">&gt;</text>
+<text x="64.4" y="147.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1" font-weight="bold">work     </text>
+<text x="140.0" y="147.5" textLength="487.2" lengthAdjust="spacingAndGlyphs" fill="#e4e4e4" font-weight="bold">      3.3M/52k    13.1M/210k    19.7M/315k    19.7M/315k  </text>
+<text x="627.2" y="147.5" textLength="134.4" lengthAdjust="spacingAndGlyphs" fill="#e4e4e4" font-weight="bold" opacity="0.6">since 2026-10-08</text>
+<text x="870.8" y="147.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="152.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="165.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="64.4" y="165.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#89b4fa">personal </text>
+<text x="140.0" y="165.5" textLength="487.2" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">      1.1M/18k      2.2M/35k      3.3M/52k      3.3M/52k  </text>
+<text x="627.2" y="165.5" textLength="134.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">since 2026-10-16</text>
+<text x="870.8" y="165.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="170.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="183.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="64.4" y="183.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#cba6f7">local    </text>
+<text x="140.0" y="183.5" textLength="487.2" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">           0/0      1.3M/21k      1.3M/21k      1.3M/21k  </text>
+<text x="627.2" y="183.5" textLength="134.4" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">since 2026-10-23</text>
+<text x="870.8" y="183.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<rect x="30.8" y="188.0" width="8.9" height="18.5" fill="#303030"/>
+<text x="14.0" y="201.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="47.6" y="201.5" textLength="159.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4" opacity="0.6">── lxc (offline) ──</text>
+<text x="870.8" y="201.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="219.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="219.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="237.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="237.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="255.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="255.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="870.8" y="273.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086"> │</text>
+<text x="14.0" y="291.5" textLength="420.0" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ ────────────────────────────────────────────────</text>
+<text x="434.0" y="291.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> tm </text>
+<text x="467.6" y="291.5" textLength="420.0" lengthAdjust="spacingAndGlyphs" fill="#6c7086">──────────────────────────────────────────────── │</text>
+<text x="14.0" y="309.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="309.5" textLength="831.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">Busiest folders, last 30 days (work):                                                              </text>
+<text x="862.4" y="309.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="327.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="327.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="345.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="345.5" textLength="831.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">   15.8M in     252k out   ~/Code/myproject                                                        </text>
+<text x="862.4" y="345.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="363.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="30.8" y="363.5" textLength="831.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4">    3.9M in      63k out   ~/Code/website                                                          </text>
+<text x="862.4" y="363.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="381.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="381.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="399.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="399.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="417.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="417.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="435.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="435.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="453.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="453.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="471.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="471.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="489.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="489.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="507.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="507.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="525.5" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#6c7086">│ </text>
+<text x="862.4" y="525.5" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#6c7086">  │</text>
+<text x="14.0" y="543.5" textLength="873.6" lengthAdjust="spacingAndGlyphs" fill="#6c7086">╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
+</svg>
