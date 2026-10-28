@@ -96,6 +96,8 @@ if [ -n "$PROJECTS" ] || [ ! -f "$CONFIG_DIR/config" ]; then
     fi
     PROJECTS="${PROJECTS/#\~/$HOME}"
     [ -d "$PROJECTS" ] || warn "$PROJECTS doesn't exist yet"
+    # The config file is read as shell code, so no quotes, $, ` or \ in the path.
+    case "$PROJECTS" in *[\"\$\`\\]*) echo "The projects folder can't contain \" \$ \` or \\: $PROJECTS" >&2; exit 1 ;; esac
     printf '# tm settings\nTM_PROJECTS_ROOT="%s"\n' "$PROJECTS" >"$CONFIG_DIR/config"
     say "Projects folder: $PROJECTS (saved in $CONFIG_DIR/config)"
 fi

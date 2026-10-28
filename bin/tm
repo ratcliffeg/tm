@@ -58,9 +58,15 @@ mkdir -p "$TM_CACHE"
 # ControlMaster keeps one connection open, so previews don't pay an SSH handshake each time.
 # (unix sockets are limited to 104 bytes of path, so a deep cache folder falls back to /tmp)
 CM_DIR="$TM_CACHE"
-if [ ${#CM_DIR} -gt 50 ]; then CM_DIR="/tmp/tm-$(id -u)"; mkdir -p -m 700 "$CM_DIR"; fi
-SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=3 -o ControlMaster=auto
-          -o "ControlPath=$CM_DIR/cm-%C" -o ControlPersist=120)
+if [ ${#CM_DIR} -gt 50 ]; then
+    CM_DIR="${XDG_RUNTIME_DIR:-/tmp}/tm-$(id -u)"
+    mkdir -p -m 700 "$CM_DIR" 2>/dev/null
+    # /tmp is shared: only use a folder that is ours, made private; otherwise don't share
+    # connections (someone else's folder could hold a socket that listens in).
+    { [ -O "$CM_DIR" ] && chmod 700 "$CM_DIR"; } || CM_DIR=""
+fi
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=3)
+if [ -n "$CM_DIR" ]; then SSH_OPTS+=(-o ControlMaster=auto -o "ControlPath=$CM_DIR/cm-%C" -o ControlPersist=120); fi
 
 remote_names() { local e; for e in ${TM_REMOTES:-}; do echo "${e%%=*}"; done; }
 
@@ -190,9 +196,11 @@ start_session() {
 }
 
 # session_name <prefix> <dir>: "<prefix>-<FOLDER>" in upper case, made unique with -2, -3...
+# Names keep only letters, digits, - and _: they end up inside shell commands (Remote Control,
+# restore), so a folder called e.g. x$(...) must not be run.
 session_name() {
     local base name n=1
-    base="$1-$(basename "$2" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')"
+    base="$1-$(basename "$2" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')"
     name=$base
     while tmux has-session -t "=$name" 2>/dev/null; do n=$((n + 1)); name="$base-$n"; done
     echo "$name"
@@ -378,7 +386,7 @@ new_session() {
     if [ "$kind" = cl ]; then while IFS= read -r e; do env+=("$e"); done < <(local_env); fi
     if [ -z "$name" ]; then
         dir=$(pick_folder "$title") || return 0
-        base=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
+        base=$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')
         case "$kind" in
             cw) start_session "$WORK_PREFIX-$base" "$dir" "$CLAUDE --remote-control $WORK_PREFIX-$base" ;;
             cp) start_session "$PERSONAL_PREFIX-$base" "$dir" "$CLAUDE --remote-control $PERSONAL_PREFIX-$base" "CLAUDE_CONFIG_DIR=$PERSONAL_DIR" ;;
@@ -393,7 +401,7 @@ new_session() {
     # KEY=value environment for local-model sessions. Prints the session name.
     session=$(rrun "$name" '
 kind=$1 acct=$2 dir=$3
-base=$(basename "$dir" | tr ".: " "---" | tr "[:lower:]" "[:upper:]")
+base=$(basename "$dir" | tr "[:lower:]" "[:upper:]" | tr -c "A-Z0-9_\n-" "-")
 case "$acct" in shell) base="S-$base" ;; codex) base="CX-$base" ;; local) base="L-$base" ;; *) base="$4-$base" ;; esac
 if [ "$kind" = x ]; then
     codex=$(command -v codex) || { echo "codex isn'"'"'t installed on this machine" >&2; exit 3; }
@@ -593,7 +601,10 @@ ask_projects_root() {
     [ -z "$v" ] && return 0
     v="${v/#\~/$HOME}"
     [ -d "$v" ] || { echo "No such folder: $v" >&2; sleep 2; return 0; }
-    set_config TM_PROJECTS_ROOT "$(cd "$v" && pwd)"
+    v=$(cd "$v" && pwd)
+    # The config file is read as shell code, so no quotes, $, ` or \ in the path.
+    case "$v" in *[\"\$\`\\]*) echo "Pick a folder without \" \$ \` or \\ in its path." >&2; sleep 2; return 0 ;; esac
+    set_config TM_PROJECTS_ROOT "$v"
     load_settings
 }
 

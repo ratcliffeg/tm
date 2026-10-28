@@ -18,7 +18,8 @@ while IFS= read -r line; do
   # Sessions on another account (e.g. ~/.claude-personal) get CLAUDE_CONFIG_DIR back.
   env_args=()
   [ -n "${config_dir:-}" ] && env_args=(-e "CLAUDE_CONFIG_DIR=$config_dir")
-  rc=" --remote-control '$name'"
+  # Quoted for the shell the command is typed into (names and ids come from the snapshot file).
+  rc=" --remote-control $(printf %q "$name")"
   case "${config_dir:-}" in
     *claude-local)
       rc=""
@@ -28,7 +29,7 @@ while IFS= read -r line; do
   # ${a[@]+...}: bash 3.2 (macOS) errors on an empty array under set -u.
   sid=$(tmux new-session -d -P -F '#{session_id}' -s "$name" -c "$cwd" ${env_args[@]+"${env_args[@]}"})
   if [ -n "$id" ]; then
-    tmux send-keys -t "$sid" "claude --resume $id$rc" Enter
+    tmux send-keys -t "$sid" "claude --resume $(printf %q "$id")$rc" Enter
   else
     # Codex sessions (CX-<FOLDER>): continue the most recent conversation in that folder.
     case "$name" in CX-*) command -v codex >/dev/null && tmux send-keys -t "$sid" "codex resume --last" Enter ;; esac

@@ -96,7 +96,7 @@ pick_project() {
 # session_name <prefix> <dir>: "<prefix>-<FOLDER>" in upper case, made unique with -2, -3...
 session_name() {
     local base name n=1
-    base="$1-$(basename "$2" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')"
+    base="$1-$(basename "$2" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')"
     name=$base
     while tmux has-session -t "=$name" 2>/dev/null; do n=$((n + 1)); name="$base-$n"; done
     echo "$name"
@@ -139,7 +139,7 @@ main() {
         q|"") exit 0 ;;
         w|p)
             dir=$(pick_project); [ -z "$dir" ] && return
-            name=$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')
+            name=$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')
             if [ "$choice" = w ]; then
                 start_session "W-$name" "$dir" "$CLAUDE --remote-control W-$name"
             else
@@ -150,12 +150,12 @@ main() {
             dir=$(pick_project); [ -z "$dir" ] && return
             env=()
             while IFS= read -r e; do env+=("$e"); done < <("$(dirname "$0")/claude-local" --env)
-            start_session "L-$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')" "$dir" "$CLAUDE" "CLAUDE_CONFIG_DIR=$LOCAL_DIR" "${env[@]}"
+            start_session "L-$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')" "$dir" "$CLAUDE" "CLAUDE_CONFIG_DIR=$LOCAL_DIR" "${env[@]}"
             ;;
         x)
             command -v codex >/dev/null || { echo "Codex isn't installed on this machine."; return; }
             dir=$(pick_project); [ -z "$dir" ] && return
-            start_session "CX-$(basename "$dir" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')" "$dir" "$(command -v codex)"
+            start_session "CX-$(basename "$dir" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')" "$dir" "$(command -v codex)"
             ;;
         s)
             dir=$(pick_project); [ -z "$dir" ] && return

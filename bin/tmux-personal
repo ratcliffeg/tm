@@ -5,7 +5,7 @@
 # Always starts a fresh session (P-<FOLDER>, P-<FOLDER>-2, ...); use `tm` to go back
 # to an existing one.
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
-base="P-$(basename "$PWD" | tr '.: ' '---' | tr '[:lower:]' '[:upper:]')"
+base="P-$(basename "$PWD" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')"
 name=$base n=1
 while tmux has-session -t "=$name" 2>/dev/null; do
     n=$((n + 1)); name="$base-$n"

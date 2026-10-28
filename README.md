@@ -101,7 +101,7 @@ session.
 | Codex | `codex` | `~/.codex` | `CX-<FOLDER>` | `CODEX`, orange `#fab387` |
 | Shell | a plain shell | none | `S-<FOLDER>` | `SHELL`, grey `#9399b2` |
 
-Names are upper case. Starting a second Claude or Codex session for the same folder takes you to
+Names are upper case, with anything other than letters, digits, `-` and `_` turned into `-`. Starting a second Claude or Codex session for the same folder takes you to
 the existing one; shells get `-2`, `-3`… The work and personal labels and prefixes, and every
 colour, can be changed in settings.
 
