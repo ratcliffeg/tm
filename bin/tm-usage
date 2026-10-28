@@ -8,7 +8,8 @@
 #   tm-usage folder <account> <dir>   today's tokens for one folder
 #   tm-usage session <tmux session>   the same for a session: its account and folder (tm's preview)
 #   tm-usage table                every account: today, 7 days, 30 days, all kept (for tm)
-#   tm-usage projects <account>   folders by tokens over the last 30 days (for tm)
+#   tm-usage projects <account>   folders by tokens over the last 30 days
+#   tm-usage report               all of it as text, for one machine (tm's usage views)
 # Accounts: work (~/.claude), personal (~/.claude-personal), local (~/.claude-local).
 # Each reply is counted once (the files repeat some). Totals are kept in a history file, so
 # they outlast Claude Code removing old conversations, and are never lowered. "in" is
@@ -106,6 +107,34 @@ folder_line() {
     printf 'today: %s in · %s out\n' "$(echo "$i" | human)" "$(echo "$o" | human)"
 }
 
+# table_rows: account <TAB> today in/out <TAB> 7 days <TAB> 30 days <TAB> all kept <TAB> first day
+table_rows() {
+    local d7 d30 data acct line since i o
+    d7=$(date -d '-6 days' +%Y-%m-%d 2>/dev/null || date -v-6d +%Y-%m-%d)
+    d30=$(date -d '-29 days' +%Y-%m-%d 2>/dev/null || date -v-29d +%Y-%m-%d)
+    data=$(rows)
+    for acct in work personal local; do
+        echo "$data" | awk -F'\t' -v a="$acct" '$2 == a { f = 1 } END { exit !f }' || continue
+        line=$acct
+        for since in "$today" "$d7" "$d30" 0000; do
+            read -r i o < <(echo "$data" | sums "$since" "" "$acct")
+            line="$line	$(echo "$i" | human)/$(echo "$o" | human)"
+        done
+        printf '%s\t%s\n' "$line" "$(echo "$data" | awk -F'\t' -v a="$acct" '$2 == a { print $1; exit }')"
+    done
+}
+
+# projects_lines <account> <how many>: folders by tokens over the last 30 days
+projects_lines() {
+    local d30 i o f
+    d30=$(date -d '-29 days' +%Y-%m-%d 2>/dev/null || date -v-29d +%Y-%m-%d)
+    rows | A="$1" S="$d30" awk -F'\t' '$2 == ENVIRON["A"] && $1 >= ENVIRON["S"] { i[$3] += $4 + $6 + $7; o[$3] += $5 }
+        END { for (f in i) printf "%.0f\t%.0f\t%s\n", i[f], o[f], f }' | sort -t'	' -k1,1nr | head -"$2" |
+        while IFS='	' read -r i o f; do
+            printf '%8s in %8s out   %s\n' "$(echo "$i" | human)" "$(echo "$o" | human)" "${f/#"$HOME"/\~}"
+        done
+}
+
 today=$(date +%Y-%m-%d)
 case "${1:-}" in
     update) update ;;
@@ -127,28 +156,20 @@ case "${1:-}" in
         esac
         folder_line "$acct" "$(tmux display-message -p -t "=$s:" '#{pane_current_path}' 2>/dev/null)"
         ;;
-    table)
-        # account <TAB> today in/out <TAB> 7 days <TAB> 30 days <TAB> all kept, since <first day>
-        d7=$(date -d '-6 days' +%Y-%m-%d 2>/dev/null || date -v-6d +%Y-%m-%d)
-        d30=$(date -d '-29 days' +%Y-%m-%d 2>/dev/null || date -v-29d +%Y-%m-%d)
-        data=$(rows)
-        for acct in work personal local; do
-            echo "$data" | awk -F'\t' -v a="$acct" '$2 == a { f = 1 } END { exit !f }' || continue
-            line=$acct
-            for since in "$today" "$d7" "$d30" 0000; do
-                read -r i o < <(echo "$data" | sums "$since" "" "$acct")
-                line="$line	$(echo "$i" | human)/$(echo "$o" | human)"
-            done
-            printf '%s\t%s\n' "$line" "$(echo "$data" | awk -F'\t' -v a="$acct" '$2 == a { print $1; exit }')"
+    table) table_rows ;;
+    projects) projects_lines "${2:-work}" 15 ;;
+    report)
+        # The whole picture for one machine, as text: the table, then each account's busiest folders.
+        t=$(table_rows)
+        if [ -z "$t" ]; then echo "(no usage recorded yet)"; exit 0; fi
+        printf '%-9s %13s %13s %13s %13s\n' account today "7 days" "30 days" "all kept"
+        echo "$t" | while IFS='	' read -r acct a b c d since; do
+            printf '%-9s %13s %13s %13s %13s  since %s\n' "$acct" "$a" "$b" "$c" "$d" "$since"
+        done
+        echo "$t" | cut -f1 | while read -r acct; do
+            printf '\nBusiest folders, last 30 days · %s\n' "$acct"
+            projects_lines "$acct" 5
         done
         ;;
-    projects)
-        d30=$(date -d '-29 days' +%Y-%m-%d 2>/dev/null || date -v-29d +%Y-%m-%d)
-        rows | A="${2:-work}" S="$d30" awk -F'\t' '$2 == ENVIRON["A"] && $1 >= ENVIRON["S"] { i[$3] += $4 + $6 + $7; o[$3] += $5 }
-            END { for (f in i) printf "%.0f\t%.0f\t%s\n", i[f], o[f], f }' | sort -t'	' -k1,1nr | head -15 |
-            while IFS='	' read -r i o f; do
-                printf '%8s in %8s out   %s\n' "$(echo "$i" | human)" "$(echo "$o" | human)" "${f/#"$HOME"/\~}"
-            done
-        ;;
-    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

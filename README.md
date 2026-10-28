@@ -110,8 +110,11 @@ colour, can be changed in settings.
 
 ## Token usage
 
-`▤  token usage` in the menu shows, for every machine and account, the tokens used today, in the
-last 7 and 30 days, and in everything recorded so far, with the busiest folders underneath.
+Highlight `▤  token usage` in the menu and the preview shows, for every machine and account, the
+tokens used today, in the last 7 and 30 days, and in everything recorded so far. It appears at
+once with the last figures tm fetched, then updates itself as fresh ones arrive from each machine
+(`⟳ updating…` while it fetches). Enter opens the usage screen: one machine at a time, with its
+busiest folders; Ctrl-R fetches again.
 Claude sessions also show today's tokens for their account at the right of the status bar, and
 the session preview's title shows the tokens for that session's folder today.
 
@@ -125,6 +128,9 @@ the session preview's title shows the tokens for that session's folder today.
   `~/.local/state/tm/usage.tsv`, so they outlast Claude Code removing old conversations.
 - **Other machines:** tm sends `tm-usage` over SSH and runs it there, so they needn't have tm
   installed (installing it adds the history and status bar there too).
+- **Live updates** use fzf's `--listen` (needs an fzf that has it, with API-key support),
+  protected by a random key per run that only fzf and the commands it starts are given. With an older fzf the figures still
+  refresh in the background and show next time (or on Ctrl-R).
 - **Local models:** the counts are whatever the model server reports, so they're only as good as
   its figures. Codex isn't counted.
 

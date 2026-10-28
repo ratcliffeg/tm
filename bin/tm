@@ -46,6 +46,102 @@ local_env() { "$(dirname "$SELF")/claude-local" --env; }
 USAGE="$(dirname "$SELF")/tm-usage"
 rusage() { local name=$1; shift; rrun "$name" "$(cat "$USAGE")" "$@" 2>/dev/null; }
 
+# --- token usage views ------------------------------------------------------------------
+# Each machine's last report (tm-usage report) is cached, so the views show figures at once;
+# a background refresh fetches new ones and tells fzf to redraw the preview. That message goes
+# to fzf's --listen port on 127.0.0.1, which needs a random per-run API key: fzf accepts any
+# action with it (fzf 0.44 runs commands too), so only fzf and what it starts get the key.
+USAGE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tm/usage"
+mkdir -p "$USAGE_DIR"
+FZF_LISTEN=()
+if fzf --help 2>/dev/null | grep -q -- '--listen'; then
+    FZF_LISTEN=(--listen --bind "start:execute-silent($SELF --usage-refresh >/dev/null 2>&1 &)")
+    TM_FZF_KEY=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+fi
+# tmfzf: fzf with the listener; the key goes into fzf's environment only (not tm's or tmux's).
+tmfzf() {
+    if [ ${#FZF_LISTEN[@]} -gt 0 ]; then FZF_API_KEY=$TM_FZF_KEY fzf "${FZF_LISTEN[@]}" "$@"; return; fi
+    # Older fzf: fetch anyway, so the next view (or ^R) shows fresh figures.
+    ( usage_refresh >/dev/null 2>&1 & )
+    fzf "$@"
+}
+
+# fzf_post <action>: send an action to the fzf that started us (no-op outside one).
+fzf_post() {
+    [ -n "${FZF_PORT:-}" ] || return 0
+    { exec 3<>"/dev/tcp/127.0.0.1/$FZF_PORT"; } 2>/dev/null || return 0
+    printf 'POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nx-api-key: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' \
+        "${FZF_API_KEY:-}" "${#1}" "$1" >&3
+    cat <&3 >/dev/null; exec 3>&-
+}
+
+usage_file() { echo "$USAGE_DIR/${1:+m-}${1:-this}.txt"; }   # <machine name | "" for this one>
+
+# usage_fetch <machine|"">: fetch its report into the cache; marks it offline if unreachable.
+usage_fetch() {
+    local f tmp
+    f=$(usage_file "$1"); tmp="$f.$$"
+    if { [ -z "$1" ] && "$USAGE" report >"$tmp" 2>/dev/null; } ||
+       { [ -n "$1" ] && remote_target "$1" >/dev/null && rusage "$1" report >"$tmp" && [ -s "$tmp" ]; }; then
+        mv "$tmp" "$f"; rm -f "$f.offline"
+    else
+        rm -f "$tmp"; touch "$f.offline"
+    fi
+}
+
+# usage_refresh [force]: fetch every machine's report in parallel (at most once a minute unless
+# forced, one run at a time), telling fzf to redraw when it starts and when it's done.
+usage_refresh() {
+    local lock="$USAGE_DIR/lock" name
+    if [ "${1:-}" != force ] && [ -n "$(find "$USAGE_DIR/stamp" -mmin -1 2>/dev/null)" ]; then return 0; fi
+    if ! mkdir "$lock" 2>/dev/null; then
+        # A lock over 3 minutes old is left from an interrupted run.
+        [ -n "$(find "$lock" -maxdepth 0 -mmin +3 2>/dev/null)" ] || return 0
+        rmdir "$lock" 2>/dev/null; mkdir "$lock" 2>/dev/null || return 0
+    fi
+    fzf_post refresh-preview
+    usage_fetch "" &
+    for name in $(remote_names); do usage_fetch "$name" & done
+    wait
+    touch "$USAGE_DIR/stamp"; rmdir "$lock" 2>/dev/null
+    fzf_post refresh-preview
+}
+
+usage_colour() { # colour account names in report text
+    sed -e "s/^work /${C_WORK}work${C_OFF} /" -e "s/^personal /${C_PERSONAL}personal${C_OFF} /" -e "s/^local /${C_LOCAL}local${C_OFF} /" \
+        -e "s/· work\$/· ${C_WORK}work${C_OFF}/" -e "s/· personal\$/· ${C_PERSONAL}personal${C_OFF}/" -e "s/· local\$/· ${C_LOCAL}local${C_OFF}/"
+}
+
+usage_status() { # the "as of" line, with "updating" while a refresh runs
+    local when
+    when=$(date -r "$USAGE_DIR/stamp" +%H:%M 2>/dev/null || echo never)
+    printf '%sas of %s%s%s\n' "$C_DIM" "$when" "$([ -d "$USAGE_DIR/lock" ] && echo '  ·  ⟳ updating…')" "$C_OFF"
+}
+
+# usage_machine <name|""> <full|table>: one machine's cached report (or just its table)
+usage_machine() {
+    local f; f=$(usage_file "$1")
+    if [ -s "$f" ]; then
+        if [ "$2" = table ]; then
+            # Compact, for the narrower preview: today, 7 and 30 days.
+            awk 'NR == 1 && $1 != "account" { print; exit }
+                 NR == 1 { printf "%-9s %12s %12s %12s\n", "account", "today", "7 days", "30 days"; next }
+                 /^$/ { exit } { printf "%-9s %12s %12s %12s\n", $1, $2, $3, $4 }' "$f"
+        else cat "$f"; fi | usage_colour
+        [ -f "$f.offline" ] && printf '%s(unreachable now; figures from %s)%s\n' "$C_DIM" "$(date -r "$f" +'%d %b %H:%M')" "$C_OFF"
+    elif [ -f "$f.offline" ]; then printf '%s(unreachable)%s\n' "$C_DIM" "$C_OFF"
+    else printf '%s(fetching…)%s\n' "$C_DIM" "$C_OFF"; fi
+}
+
+# usage_summary: every machine's table, for the main menu's preview
+usage_summary() {
+    local name
+    printf 'Token usage, in / out  '; usage_status; echo
+    printf '%s── %s ──%s\n' "$C_DIM" "$(hostname -s 2>/dev/null || hostname)" "$C_OFF"; usage_machine "" table
+    for name in $(remote_names); do printf '\n%s── %s ──%s\n' "$C_DIM" "$name" "$C_OFF"; usage_machine "$name" table; done
+    printf '\n%sEnter: each machine, with its busiest folders.\n"in": all sent, mostly cached context.\n"out": what Claude wrote.%s\n' "$C_DIM" "$C_OFF"
+}
+
 command -v fzf >/dev/null || exec "$(dirname "$SELF")/tm-text" "$@"
 
 # Menu colours follow the tmux status bars (set in load_settings); only dim/reset live here.
@@ -235,12 +331,8 @@ preview() {
             ;;
         T:) echo "Type any folder path, with Tab completion. ~ works." ;;
         A:) printf 'Stop every tmux session on this machine (%s), and Claude and anything\nelse running in them. Asks first. Sessions on other machines keep running.\n\nThey won'"'"'t come back after a reboot either.\n' "$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')" ;;
-        U:) printf 'Tokens used by Claude on each machine and account: today, the last 7 and\n30 days, and everything tm has recorded. "in" is everything sent (new input\nand cache), "out" is what Claude wrote.\n' ;;
-        U:*)
-            rest=${key#U:}
-            printf 'Busiest folders, last 30 days (%s):\n\n' "${rest#*:}"
-            if [ -z "${rest%%:*}" ]; then "$USAGE" projects "${rest#*:}"; else rusage "${rest%%:*}" projects "${rest#*:}"; fi
-            ;;
+        U:) usage_summary ;;
+        UM:*) printf 'Token usage, in / out  '; usage_status; echo; usage_machine "${key#UM:}" full ;;
         N:*) printf 'Start a new Claude or shell session %s.\n\nYou choose Claude (%s, %s or local model), Codex\nor a shell, then a folder.\n' "$([ -n "${key#N:}" ] && echo "on ${key#N:}" || echo locally)" "$(lc "$WORK_LABEL")" "$(lc "$PERSONAL_LABEL")" ;;
         G:wl|G:pl) printf 'The name shown beside sessions of this account, in the menu and the tmux\nstatus bar. Upper-cased. Existing sessions keep their names.\n' ;;
         G:wp|G:pp) printf 'The start of new session names, e.g. %s-MYPROJECT. Only affects sessions\nstarted from now on.\n' "$WORK_PREFIX" ;;
@@ -304,6 +396,7 @@ label() {
 case "${1:-}" in
     --preview) preview "$2"; exit 0 ;;
     --label) label "$2"; exit 0 ;;
+    --usage-refresh) usage_refresh "${2:-}"; exit 0 ;;
 esac
 
 FZF_OPTS=(
@@ -468,43 +561,16 @@ main_list() {
     printf 'G:\t%s⚙  settings%s\n' "$C_DIM" "$C_OFF"
 }
 
-# usage_lines <machine name|""> <file with tm-usage table output>: the usage screen's rows
-usage_lines() {
-    local name=$1 acct t d7 d30 all since c
-    while IFS=$'\t' read -r acct t d7 d30 all since; do
-        case "$acct" in personal) c=$C_PERSONAL ;; local) c=$C_LOCAL ;; *) c=$C_WORK ;; esac
-        printf 'U:%s:%s\t  %s%-9s%s %13s %13s %13s %13s  %ssince %s%s\n' "$name" "$acct" "$c" "$acct" "$C_OFF" \
-            "$t" "$d7" "$d30" "$all" "$C_DIM" "$since" "$C_OFF"
-    done <"$2"
-}
-
-# usage_menu: tokens per machine and account; the preview lists the busiest folders.
+# usage_menu: machines on the left; the highlighted one's report (cached at once, then
+# refreshed) on the right. ^R fetches again.
 usage_menu() {
-    local tmp name i=0 names=()
-    tmp=$(mktemp -d)
-    echo "Reading usage…"
-    "$USAGE" table >"$tmp/local" 2>/dev/null &
-    for name in $(remote_names); do
-        names+=("$name")
-        { remote_target "$name" >/dev/null && rusage "$name" table >"$tmp/r$i" || echo offline >"$tmp/r$i"; } &
-        i=$((i + 1))
-    done
-    wait
+    local name
     {
-        printf 'X:\t%s  %-9s %13s %13s %13s %13s%s\n' "$C_DIM" "account" "today" "7 days" "30 days" "all kept" "$C_OFF"
-        printf 'X:\t%s── local (%s) ──%s\n' "$C_DIM" "$(hostname -s 2>/dev/null || hostname)" "$C_OFF"
-        if [ -s "$tmp/local" ]; then usage_lines "" "$tmp/local"; else printf 'X:\t%s  (no usage yet)%s\n' "$C_DIM" "$C_OFF"; fi
-        for ((n = 0; n < i; n++)); do
-            if [ "$(cat "$tmp/r$n")" = offline ]; then
-                printf 'X:\t%s── %s (offline) ──%s\n' "$C_DIM" "${names[n]}" "$C_OFF"
-            else
-                printf 'X:\t%s── %s ──%s\n' "$C_DIM" "${names[n]}" "$C_OFF"
-                if [ -s "$tmp/r$n" ]; then usage_lines "${names[n]}" "$tmp/r$n"; else printf 'X:\t%s  (no usage)%s\n' "$C_DIM" "$C_OFF"; fi
-            fi
-        done
-    } | fzf "${FZF_OPTS[@]}" --border-label=' tm · token usage (in / out) ' --header='Esc back · ^R refresh preview' \
-            --preview-window='down,50%,border-top' >/dev/null
-    rm -rf "$tmp"
+        printf 'UM:\t%s── %s ──%s  this machine\n' "$C_DIM" "$(hostname -s 2>/dev/null || hostname)" "$C_OFF"
+        for name in $(remote_names); do printf 'UM:%s\t%s── %s ──%s\n' "$name" "$C_DIM" "$name" "$C_OFF"; done
+    } | tmfzf "${FZF_OPTS[@]}" --border-label=' tm · token usage ' \
+            --header='Esc back · ^R fetch again' --preview-window='right,72%,border-left,<70(down,70%,border-top)' \
+            --bind "ctrl-r:execute-silent($SELF --usage-refresh force >/dev/null 2>&1 &)" >/dev/null
 }
 
 # set_config <KEY> [value]: write KEY="value" into the config file (no value removes it).
@@ -830,7 +896,7 @@ stop_all() {
 while true; do
     load_settings
     # --expect: the first line of fzf's output is the key that ended it (empty for Enter).
-    sel=$(main_list | fzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' --expect=ctrl-x \
+    sel=$(main_list | tmfzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' --expect=ctrl-x \
               --header='Enter open · ^X close · Esc quit · ^R refresh') || exit 0
     pressed=${sel%%$'\n'*}; sel=${sel#*$'\n'}
     key=${sel%%$'\t'*}

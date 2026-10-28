@@ -88,7 +88,8 @@ keys Escape; sleep 5                   # back to the session list (the offline r
 keys settings Enter;                   shot settings 'tm · settings'
 keys colours Enter;                    shot colours 'tm · colours'
 keys Escape Escape; sleep 5
-keys 'token usage' Enter; sleep 2; keys Down Down; shot usage 'tm · token usage'
+keys 'token usage'; sleep 3;          shot usage-preview 'tm · token usage preview'
+keys Enter; sleep 3;                   shot usage 'tm · token usage'
 keys Escape; sleep 5
 keys S-WEBSITE C-x;                    shot close 'tm · close a session'
 keys Enter; sleep 5                    # = no

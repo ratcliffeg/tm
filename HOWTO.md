@@ -106,10 +106,16 @@ How much each account has used shows up in three places:
 - **The status bar** of every Claude session: today's tokens for its account, on the right
   (see [Inside a session](#inside-a-session)).
 - **The preview's title** in the menu: today's tokens for the highlighted session's folder.
-- **`▤  token usage`** in the menu: every machine and account, for today, 7 days, 30 days and
-  everything recorded, with the busiest folders of the highlighted account underneath.
+- **`▤  token usage`** in the menu: highlight it and the preview shows every machine and account,
+  for today, 7 days, 30 days and everything recorded. It shows the last figures straight away,
+  says `⟳ updating…` while it fetches new ones from each machine, then redraws by itself.
 
-![The token usage screen: tokens per account for today, 7 and 30 days, and all recorded](docs/images/usage.svg)
+  ![Highlighting token usage: a summary of every machine and account](docs/images/usage-preview.svg)
+
+- **Enter** on it opens the usage screen: pick a machine on the left to see its accounts and
+  busiest folders. Ctrl-R fetches again.
+
+  ![The token usage screen for one machine, with its busiest folders](docs/images/usage.svg)
 
 "in" is everything sent to the model, most of it cached context; "out" is what it wrote. The
 figures come from Claude Code's own records on each machine, and tm keeps daily totals, so the

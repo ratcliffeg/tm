@@ -4,14 +4,14 @@
 <circle cx="18" cy="15" r="6" fill="#f38ba8"/><circle cx="38" cy="15" r="6" fill="#f9e2af"/><circle cx="58" cy="15" r="6" fill="#a6e3a1"/>
 <text x="447" y="20" fill="#7f849c" text-anchor="middle">W-MYPROJECT (myhost)</text>
 <rect x="14.0" y="44.0" width="344.9" height="18.5" fill="#16271b"/>
-<text x="14.0" y="57.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">5935c5c (</text>
+<text x="14.0" y="57.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">9ef6e9f (</text>
 <text x="89.6" y="57.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#94e2d5" font-weight="bold">HEAD</text>
 <text x="123.2" y="57.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#f9e2af"> -&gt; </text>
 <text x="156.8" y="57.5" textLength="33.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1" font-weight="bold">main</text>
 <text x="190.4" y="57.5" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">)</text>
 <text x="198.8" y="57.5" textLength="159.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> Add the login page</text>
 <rect x="14.0" y="62.0" width="176.9" height="18.5" fill="#16271b"/>
-<text x="14.0" y="75.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">953cbc9</text>
+<text x="14.0" y="75.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#f9e2af">f083c07</text>
 <text x="72.8" y="75.5" textLength="117.6" lengthAdjust="spacingAndGlyphs" fill="#cdd6f4"> First version</text>
 <rect x="14.0" y="80.0" width="252.5" height="18.5" fill="#16271b"/>
 <text x="14.0" y="93.5" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="#a6e3a1">me@myhost</text>
@@ -29,5 +29,5 @@
 <text x="14.0" y="543.5" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e" font-weight="bold"> WORK </text>
 <text x="64.4" y="543.5" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">· W-MYPROJECT (myhost) </text>
 <text x="257.6" y="543.5" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e" font-weight="bold">0:bash*</text>
-<text x="316.4" y="543.5" textLength="562.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">                                    today 3.3M in · 52k out · 12:33</text>
+<text x="316.4" y="543.5" textLength="562.8" lengthAdjust="spacingAndGlyphs" fill="#1e1e2e">                                    today 3.3M in · 52k out · 12:48</text>
 </svg>
