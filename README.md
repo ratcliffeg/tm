@@ -254,7 +254,8 @@ the LAN address before the Tailscale one and it works at home and away. Needs ke
 
 ## Contributing
 
-Fixes and additions are welcome: open an issue or a pull request. The scripts are plain bash and
+Fixes and additions are welcome: open an issue or a pull request. Security problems: please report
+them privately, as described in [SECURITY.md](SECURITY.md). The scripts are plain bash and
 aim to work with macOS's bash 3.2 as well as Linux. If you change a screen, run
 `docs/tools/make-screenshots.sh` (Linux) to refresh the pictures.
 
