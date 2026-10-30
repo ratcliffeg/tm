@@ -27,7 +27,7 @@ load_settings() {
     PERSONAL_LABEL="${TM_PERSONAL_LABEL:-PERSONAL}" PERSONAL_PREFIX="${TM_PERSONAL_PREFIX:-P}"
     PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
     # What follows Claude/Codex in a session: a shell by default, nothing if the session should end with it.
-    AFTER_AGENT="; exec bash"; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && AFTER_AGENT=""
+    AFTER_AGENT='; exec ${SHELL:-bash}'; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && AFTER_AGENT=""
     WORK_HEX="${TM_WORK_COLOUR:-#a6e3a1}"         WORK_TINT_HEX="${TM_WORK_TINT:-$([ -n "${TM_WORK_COLOUR:-}" ] && tint_of "$TM_WORK_COLOUR" || echo '#16271b')}"
     PERSONAL_HEX="${TM_PERSONAL_COLOUR:-#89b4fa}" PERSONAL_TINT_HEX="${TM_PERSONAL_TINT:-$([ -n "${TM_PERSONAL_COLOUR:-}" ] && tint_of "$TM_PERSONAL_COLOUR" || echo '#16213a')}"
     SHELL_HEX="${TM_SHELL_COLOUR:-#9399b2}"       SHELL_TINT_HEX="${TM_SHELL_TINT:-$([ -n "${TM_SHELL_COLOUR:-}" ] && tint_of "$TM_SHELL_COLOUR" || echo '#1e1e2e')}"

@@ -13,7 +13,7 @@ set -o pipefail
 TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
 [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
 PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
-AFTER_AGENT="; exec bash"; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && AFTER_AGENT=""
+AFTER_AGENT='; exec ${SHELL:-bash}'; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && AFTER_AGENT=""
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
 PERSONAL_DIR="$HOME/.claude-personal"
 LOCAL_DIR="$HOME/.claude-local"
