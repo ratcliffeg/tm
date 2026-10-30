@@ -66,7 +66,8 @@ brackets: `WORK · W-MYPROJECT (myhost)`. On the right: the account's [tokens](#
 - **Detach:** `prefix d` (the tmux prefix is Ctrl-B unless you've changed it). The session keeps
   running, and if you opened it from tm you're back in the menu.
 - **When Claude exits** (`/exit`) you're left in a shell in the same folder, so a slip doesn't lose
-  the session. `exit` or Ctrl-D in that shell ends the session.
+  the session. `exit` or Ctrl-D in that shell ends the session. Prefer `/exit` to end everything
+  in one go? Turn on **end session when Claude exits** in [settings](#settings).
 - **Another Claude window:** `prefix P` opens a personal-account Claude window in the current
   folder, inside whatever session you're in.
 - **Hop between sessions:** `prefix s` shows tmux's own list.
@@ -142,6 +143,9 @@ after the same kind of question.
 - **remote machines** — add, change, rename, test or remove other machines (see
   [below](#other-machines)).
 - **projects folder** — where new sessions list projects from.
+- **end session when Claude exits** — off by default. When on, quitting Claude (or Codex, or the
+  local model) ends the session and returns you to the menu instead of leaving a shell. Applies
+  to sessions started afterwards.
 - **colours** — the status-bar colour and background tint of each kind of session:
 
   ![The colours menu, with a preview of the highlighted colour](docs/images/colours.svg)

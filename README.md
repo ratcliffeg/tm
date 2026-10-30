@@ -143,6 +143,11 @@ by hand):
   Adding or editing one runs a connection test and says what's wrong (unreachable, key not
   accepted, new host key to trust).
 - **projects folder** — the folder new sessions pick a project from.
+- **end session when Claude exits** — off by default: quitting Claude (or Codex, or the local
+  model) leaves you in a shell in the same session. Turn it on (`TM_EXIT_WITH_CLAUDE=1`) and
+  quitting ends the session, so `/exit` takes you straight back to the `tm` menu. Applies to
+  sessions started after you change it; on other machines it follows this machine's setting
+  when started from here.
 - **colours** — the status-bar colour and dark background tint of each kind of session, as
   `#rrggbb`. Set a bar colour and the tint follows (15% of it); type `auto` on a tint to go back
   to that. Running sessions on this machine are restyled straight away; other machines use their

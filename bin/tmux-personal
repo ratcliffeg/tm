@@ -4,6 +4,9 @@
 # Drops to a shell when Claude exits, where plain `claude` still uses the personal account.
 # Always starts a fresh session (P-<FOLDER>, P-<FOLDER>-2, ...); use `tm` to go back
 # to an existing one.
+TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
+[ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
+after="; exec bash"; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && after=""
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
 base="P-$(basename "$PWD" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_\n-' '-')"
 name=$base n=1
@@ -11,7 +14,7 @@ while tmux has-session -t "=$name" 2>/dev/null; do
     n=$((n + 1)); name="$base-$n"
 done
 tmux new-session -d -s "$name" -c "$PWD" -e "CLAUDE_CONFIG_DIR=$HOME/.claude-personal" \
-    "$CLAUDE --remote-control $name; exec bash"
+    "$CLAUDE --remote-control $name$after"
 if [ -n "${TMUX:-}" ]; then
     exec tmux switch-client -t "=$name"
 else

@@ -21,11 +21,13 @@ load_settings() {
     unset TM_WORK_LABEL TM_WORK_PREFIX TM_PERSONAL_LABEL TM_PERSONAL_PREFIX TM_REMOTES TM_PROJECTS_ROOT \
           TM_WORK_COLOUR TM_WORK_TINT TM_PERSONAL_COLOUR TM_PERSONAL_TINT \
           TM_SHELL_COLOUR TM_SHELL_TINT TM_CODEX_COLOUR TM_CODEX_TINT TM_LOCAL_COLOUR TM_LOCAL_TINT \
-          TM_LOCAL_URL TM_LOCAL_MODEL TM_LOCAL_TOKEN TM_LOCAL_MAX_CONTEXT_TOKENS TM_LOCAL_MAX_OUTPUT_TOKENS
+          TM_EXIT_WITH_CLAUDE TM_LOCAL_URL TM_LOCAL_MODEL TM_LOCAL_TOKEN TM_LOCAL_MAX_CONTEXT_TOKENS TM_LOCAL_MAX_OUTPUT_TOKENS
     [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
     WORK_LABEL="${TM_WORK_LABEL:-WORK}" WORK_PREFIX="${TM_WORK_PREFIX:-W}"
     PERSONAL_LABEL="${TM_PERSONAL_LABEL:-PERSONAL}" PERSONAL_PREFIX="${TM_PERSONAL_PREFIX:-P}"
     PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
+    # What follows Claude/Codex in a session: a shell by default, nothing if the session should end with it.
+    AFTER_AGENT="; exec bash"; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && AFTER_AGENT=""
     WORK_HEX="${TM_WORK_COLOUR:-#a6e3a1}"         WORK_TINT_HEX="${TM_WORK_TINT:-$([ -n "${TM_WORK_COLOUR:-}" ] && tint_of "$TM_WORK_COLOUR" || echo '#16271b')}"
     PERSONAL_HEX="${TM_PERSONAL_COLOUR:-#89b4fa}" PERSONAL_TINT_HEX="${TM_PERSONAL_TINT:-$([ -n "${TM_PERSONAL_COLOUR:-}" ] && tint_of "$TM_PERSONAL_COLOUR" || echo '#16213a')}"
     SHELL_HEX="${TM_SHELL_COLOUR:-#9399b2}"       SHELL_TINT_HEX="${TM_SHELL_TINT:-$([ -n "${TM_SHELL_COLOUR:-}" ] && tint_of "$TM_SHELL_COLOUR" || echo '#1e1e2e')}"
@@ -288,7 +290,7 @@ start_session() {
     if ! tmux has-session -t "=$name" 2>/dev/null; then
         local args=(new-session -d -s "$name" -c "$dir")
         for env in "$@"; do [ -n "$env" ] && args+=(-e "$env"); done
-        [ -n "$cmd" ] && args+=("$cmd; exec bash")
+        [ -n "$cmd" ] && args+=("$cmd$AFTER_AGENT")
         tmux "${args[@]}"
     fi
     go_to "$name"
@@ -504,7 +506,7 @@ new_session() {
     dir=$(remote_pick_folder "$name" "$title") || return 0
     # args: kind (c|x|s), account (work|personal|local|shell|codex), folder, name prefix, then
     # KEY=value environment for local-model sessions. Prints the session name.
-    session=$(rrun "$name" '
+    session=$(rrun "$name" 'after="'"$AFTER_AGENT"'"
 kind=$1 acct=$2 dir=$3
 base=$(basename "$dir" | tr "[:lower:]" "[:upper:]" | tr -c "A-Z0-9_\n-" "-")
 case "$acct" in shell) base="S-$base" ;; codex) base="CX-$base" ;; local) base="L-$base" ;; *) base="$4-$base" ;; esac
@@ -529,11 +531,11 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
         else
             for e in "${@:5}"; do args+=(-e "$e"); done
         fi
-        args+=("$claude; exec bash")
+        args+=("$claude$after")
     elif [ "$kind" = c ]; then
-        args+=("$claude --remote-control $name; exec bash")
+        args+=("$claude --remote-control $name$after")
     fi
-    [ "$kind" = x ] && args+=("$codex; exec bash")
+    [ "$kind" = x ] && args+=("$codex$after")
     tmux -u "${args[@]}" || exit 1
 fi
 echo "$name"' "${kind:0:1}" "$(case "$kind" in cp) echo personal ;; cl) echo local ;; s) echo shell ;; x) echo codex ;; *) echo work ;; esac)" "$dir" "$([ "$kind" = cp ] && echo "$PERSONAL_PREFIX" || echo "$WORK_PREFIX")" ${env[@]+"${env[@]}"}) || { echo "Couldn't start the session on $name" >&2; sleep 2; return 0; }
@@ -829,9 +831,10 @@ settings_menu() {
         load_settings
         url=$(local_env | sed -n 's/^ANTHROPIC_BASE_URL=//p'); model=$(local_env | sed -n 's/^ANTHROPIC_MODEL=//p'); model=${model:-(not set)}
         ctx=$(local_env | sed -n 's/^CLAUDE_CODE_MAX_CONTEXT_TOKENS=//p'); out=$(local_env | sed -n 's/^CLAUDE_CODE_MAX_OUTPUT_TOKENS=//p')
-        sel=$(printf 'G:rm\t%-26s %s\nG:pr\t%-26s %s\nG:cl\tcolours\nG:lu\t%s%-26s %s%s\nG:lm\t%s%-26s %s%s\nG:lt\t%s%-26s %s%s\nG:lc\t%s%-26s %s%s\nG:lo\t%s%-26s %s%s\nG:lx\t%stest the local model connection%s\nG:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset account names to defaults%s\n' \
+        sel=$(printf 'G:rm\t%-26s %s\nG:pr\t%-26s %s\nG:ex\t%-26s %s\nG:cl\tcolours\nG:lu\t%s%-26s %s%s\nG:lm\t%s%-26s %s%s\nG:lt\t%s%-26s %s%s\nG:lc\t%s%-26s %s%s\nG:lo\t%s%-26s %s%s\nG:lx\t%stest the local model connection%s\nG:wl\t%s%-26s %s%s\nG:wp\t%s%-26s %s%s\nG:pl\t%s%-26s %s%s\nG:pp\t%s%-26s %s%s\nG:r\t%sreset account names to defaults%s\n' \
                   "remote machines" "$(remote_names | paste -sd' ' -)" \
                   "projects folder" "$(echo "$PROJECTS_ROOT" | sed "s|^$HOME|~|")" \
+                  "end session when Claude exits" "$([ -z "$AFTER_AGENT" ] && echo on || echo 'off (stay in a shell)')" \
                   "$C_LOCAL" "local model address" "$url" "$C_OFF" "$C_LOCAL" "local model name" "$model" "$C_OFF" \
                   "$C_LOCAL" "local model token" "$([ -n "${TM_LOCAL_TOKEN:-}" ] && echo '(set)' || echo '(default)')" "$C_OFF" \
                   "$C_LOCAL" "local model context tokens" "$ctx" "$C_OFF" "$C_LOCAL" "local model output tokens" "$out" "$C_OFF" \
@@ -843,6 +846,7 @@ settings_menu() {
         case "${sel%%$'\t'*}" in
             G:rm) remotes_menu ;;
             G:pr) ask_projects_root ;;
+            G:ex) if [ -z "$AFTER_AGENT" ]; then set_config TM_EXIT_WITH_CLAUDE; else set_config TM_EXIT_WITH_CLAUDE 1; fi; load_settings ;;
             G:cl) colours_menu ;;
             G:lu) ask_local_url ;;
             G:lm) ask_local_value TM_LOCAL_MODEL 'Local model name' "${TM_LOCAL_MODEL:-}" ;;

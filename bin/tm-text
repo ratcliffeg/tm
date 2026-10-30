@@ -13,6 +13,7 @@ set -o pipefail
 TM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/tm/config"
 [ -f "$TM_CONFIG" ] && . "$TM_CONFIG"
 PROJECTS_ROOT="${TM_PROJECTS_ROOT:-$HOME/Code}"
+AFTER_AGENT="; exec bash"; [ "${TM_EXIT_WITH_CLAUDE:-}" = 1 ] && AFTER_AGENT=""
 CLAUDE="$(command -v claude || echo "$HOME/.local/bin/claude")"
 PERSONAL_DIR="$HOME/.claude-personal"
 LOCAL_DIR="$HOME/.claude-local"
@@ -54,7 +55,7 @@ start_session() {
     if ! tmux has-session -t "=$name" 2>/dev/null; then
         local args=(new-session -d -s "$name" -c "$dir")
         for env in "$@"; do [ -n "$env" ] && args+=(-e "$env"); done
-        [ -n "$cmd" ] && args+=("$cmd; exec bash")
+        [ -n "$cmd" ] && args+=("$cmd$AFTER_AGENT")
         tmux "${args[@]}"
     fi
     go_to "$name"
