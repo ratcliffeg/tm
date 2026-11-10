@@ -112,6 +112,19 @@ if tmux ls >/dev/null 2>&1; then
     "$BIN/tmux-account-style" all
 fi
 
+# --- images from the computer you sit at (tm-share) -----------------------------------
+# A Claude Code hook that fetches images you drag in over SSH, and the folder the forwards
+# back to your computer appear in. See "Images over SSH" in the README.
+if command -v python3 >/dev/null 2>&1; then
+    say "Adding the image hook (tm-share) to Claude Code's settings"
+    mkdir -p "$HOME/.cache/tm/share" && chmod 700 "$HOME/.cache/tm/share"
+    for d in "$HOME/.claude" "$HOME/.claude-personal" "$HOME/.claude-local"; do
+        [ -d "$d" ] && "$REPO/bin/tm-share" install-hook "$d"
+    done
+else
+    warn "python3 not found: skipping tm-share (images over SSH)"
+fi
+
 # --- shell hook -----------------------------------------------------------------------
 if [ "$SSH_HOOK" = 1 ]; then
     rc="$HOME/.bashrc"

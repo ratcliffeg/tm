@@ -1,0 +1,698 @@
+#!/usr/bin/env python3
+"""tm-share: hand images from the computer you sit at to Claude on another machine.
+
+Over SSH, Claude can't see your files or your clipboard: a dragged-in image arrives as a path
+that only exists on your computer, and Ctrl+V reads the remote machine's (empty) clipboard.
+tm-share carries them across the SSH connection you already have, in the outbound direction,
+so the computer you sit at never has to accept incoming connections.
+
+On the computer you sit at:
+  tm-share setup HOST      add a block to ~/.ssh/config for HOST, then reconnect
+  tm-share serve           the helper (setup starts it for you whenever you connect)
+  tm-share status          is the helper running, and is the clipboard readable
+
+On the machine Claude runs on (wired up by install.sh):
+  tm-share hook            Claude Code hook: fetches image paths in your message that
+                           don't exist here, and tells Claude where the copies are
+  tm-share paste           tmux key (prefix + I): your clipboard image, typed into the pane
+  tm-share fetch PATH      fetch one file; prints where the copy is
+  tm-share clip            fetch the clipboard image; prints where the copy is
+
+The helper only sends image and PDF files (checked by their contents), only from your home
+folder, temp folders and removable drives, and the clipboard image. Nothing else.
+"""
+
+import fcntl
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+
+HOME = os.path.expanduser("~")
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "tm")
+LOCAL_SOCK = os.path.join(HOME, ".cache", "tm", "share.sock")
+if len(LOCAL_SOCK) > 100:  # unix socket paths are limited to 104 bytes (macOS)
+    LOCAL_SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(),
+                              "tm-share-%d" % os.getuid(), "share.sock")
+REMOTE_DIR = os.path.join(HOME, ".cache", "tm", "share")      # where sshd puts the forwards
+DROPS = os.path.join(CACHE, "drops")
+KEEP_DAYS = 7
+MAX_BYTES = 30 * 1024 * 1024
+EXTS = ("png", "jpg", "jpeg", "gif", "webp", "pdf")
+BIN = os.path.join(HOME, ".local", "bin", "tm-share")
+
+
+def die(msg, code=1):
+    print("tm-share: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def kind_of(head):
+    """File type from its first bytes, or None if it isn't one we send."""
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head.startswith(b"%PDF-"):
+        return "pdf"
+    return None
+
+
+# --- wire format ------------------------------------------------------------------------
+# Request:  one JSON line, {"op": "file", "path": "..."} or {"op": "clip"}
+# Reply:    one JSON line, {"ok": true, "name": "...", "size": N} then N bytes,
+#           or {"ok": false, "error": "..."}
+
+def read_line(sock, limit=65536):
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = sock.recv(1)
+        if not chunk:
+            break
+        buf += chunk
+        if len(buf) > limit:
+            raise ValueError("line too long")
+    return buf
+
+
+NOT_THERE = ("no such file", "only files in")  # errors meaning "you probably only mentioned it"
+
+
+def send_reply(conn, data=None, name=None, error=None):
+    if error:
+        reply = {"ok": False, "error": error, "missing": error.startswith(NOT_THERE)}
+        conn.sendall((json.dumps(reply) + "\n").encode())
+        return
+    conn.sendall((json.dumps({"ok": True, "name": name, "size": len(data)}) + "\n").encode())
+    conn.sendall(data)
+
+
+# --- the computer you sit at ------------------------------------------------------------
+
+def allowed_roots():
+    roots = [HOME, "/tmp", "/private/tmp", "/var/folders", "/private/var/folders",
+             "/media", "/run/media", "/Volumes", tempfile.gettempdir()]
+    return [os.path.realpath(r) for r in roots]
+
+
+def serve_file(path):
+    path = os.path.expanduser(path)
+    real = os.path.realpath(path)
+    if not any(real == r or real.startswith(r.rstrip("/") + "/") for r in allowed_roots()):
+        return None, None, "only files in your home folder, temp folders or drives are shared"
+    if not real.lower().endswith(tuple("." + e for e in EXTS)):
+        return None, None, "not an image or PDF"
+    if not os.path.isfile(real):
+        return None, None, "no such file on your computer: " + path
+    if os.path.getsize(real) > MAX_BYTES:
+        return None, None, "bigger than %d MB" % (MAX_BYTES // 1024 // 1024)
+    with open(real, "rb") as f:
+        data = f.read(MAX_BYTES + 1)
+    if not kind_of(data[:16]):
+        return None, None, "the file isn't really an image or PDF"
+    return data, os.path.basename(real), None
+
+
+def run(cmd, timeout=5):
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout)
+        return p.returncode, p.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return 1, b""
+
+
+def uri_list_image(text):
+    """First image file in a text/uri-list (a file copied in the file manager)."""
+    for line in text.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if line.startswith("file://"):
+            p = urllib.parse.unquote(urllib.parse.urlparse(line).path)
+            if p.lower().endswith(tuple("." + e for e in EXTS)):
+                return p
+    return None
+
+
+def clipboard():
+    """(data, name, error) for the image on the clipboard."""
+    stamp = "clipboard"
+    if sys.platform == "darwin":
+        rc, out = run(["osascript", "-e",
+                       "try\nPOSIX path of (the clipboard as «class furl»)\nend try"])
+        p = out.decode().strip()
+        if rc == 0 and p and p.lower().endswith(tuple("." + e for e in EXTS)):
+            return serve_file(p)
+        fd, tmp = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        try:
+            script = ('set f to open for access POSIX file "%s" with write permission\n'
+                      'try\nwrite (the clipboard as «class PNGf») to f\nclose access f\n'
+                      'on error\nclose access f\nerror number 1\nend try' % tmp)
+            rc, _ = run(["osascript", "-e", script])
+            with open(tmp, "rb") as f:
+                data = f.read()
+        finally:
+            os.unlink(tmp)
+        if rc != 0 or not kind_of(data[:16]):
+            return None, None, "there's no image on your clipboard"
+        return data, stamp + ".png", None
+
+    tries = []
+    if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste"):
+        tries.append((["wl-paste", "--list-types"], lambda t: ["wl-paste", "--no-newline", "--type", t]))
+    if os.environ.get("DISPLAY") and shutil.which("xclip"):
+        tries.append((["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"],
+                      lambda t: ["xclip", "-selection", "clipboard", "-t", t, "-o"]))
+    if not tries:
+        if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+            return None, None, "the helper can't see your desktop (no WAYLAND_DISPLAY or DISPLAY)"
+        return None, None, "install wl-clipboard (Wayland) or xclip (X11) on your computer"
+    for list_cmd, get_cmd in tries:
+        rc, out = run(list_cmd)
+        if rc != 0:
+            continue
+        types = out.decode("utf-8", "replace").split()
+        for t in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+            if t in types:
+                rc, data = run(get_cmd(t), timeout=10)
+                if rc == 0 and kind_of(data[:16]):
+                    return data, stamp + "." + kind_of(data[:16]), None
+        if "text/uri-list" in types:
+            rc, data = run(get_cmd("text/uri-list"))
+            p = uri_list_image(data) if rc == 0 else None
+            if p:
+                return serve_file(p)
+    return None, None, "there's no image on your clipboard"
+
+
+def handle(conn):
+    conn.settimeout(15)
+    try:
+        req = json.loads(read_line(conn) or b"{}")
+        if req.get("op") == "file" and isinstance(req.get("path"), str):
+            data, name, err = serve_file(req["path"])
+        elif req.get("op") == "clip":
+            data, name, err = clipboard()
+        else:
+            data, name, err = None, None, "unknown request"
+        send_reply(conn, data, name, err)
+    except Exception as e:  # one bad request mustn't stop the helper
+        try:
+            send_reply(conn, error="helper error: %s" % e)
+        except OSError:
+            pass
+    finally:
+        conn.close()
+
+
+def alive(path):
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(1)
+    try:
+        s.connect(path)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def cmd_serve(args):
+    d = os.path.dirname(LOCAL_SOCK)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    if os.lstat(d).st_uid != os.getuid():  # a shared temp folder: only ever use our own
+        die("%s belongs to someone else" % d)
+    os.chmod(d, 0o700)
+    if alive(LOCAL_SOCK):
+        return 0  # already running
+    if "--background" in args:
+        child = os.fork()
+        if child:
+            os.waitpid(child, 0)
+            return 0
+        os.setsid()
+        if os.fork():
+            os._exit(0)
+        devnull = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(devnull, fd)
+        # Start afresh, so the helper shows up as "tm-share serve" whoever started it.
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), "serve"])
+    # One helper at a time, even when two connections start one at the same moment.
+    lock = open(LOCAL_SOCK + ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0
+    try:
+        os.unlink(LOCAL_SOCK)
+    except FileNotFoundError:
+        pass
+    srv = socket.socket(socket.AF_UNIX)
+    old = os.umask(0o177)
+    srv.bind(LOCAL_SOCK)
+    os.umask(old)
+    srv.listen(8)
+    signal.signal(signal.SIGCHLD, signal.SIG_IGN)  # finished requests are cleared up at once
+    while True:
+        conn, _ = srv.accept()
+        if os.fork() == 0:
+            signal.signal(signal.SIGCHLD, signal.SIG_DFL)  # subprocess needs it back
+            srv.close()
+            lock.close()
+            handle(conn)
+            os._exit(0)
+        conn.close()
+
+
+LOG = os.path.join(HOME, ".cache", "tm", "share.log")
+
+
+def log(msg):
+    try:
+        with open(LOG, "a") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    except OSError:
+        pass
+
+
+def control_sockets(c):
+    """Where the shared connection's control socket can be: ours, or tm's fallback folder."""
+    yield os.path.join(HOME, ".cache", "tm", "cm-" + c)
+    yield os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "tm-%d" % os.getuid(), "cm-" + c)
+
+
+def cmd_connected(args):
+    """LocalCommand: start the helper, then ask for the forward through the new connection."""
+    if len(args) != 3:
+        die("usage: tm-share connected HOST CONNECTION-HASH LOCAL-HOSTNAME")
+    host, chash, local = args
+    cmd_serve(["--background"])
+    if os.fork():
+        return 0  # ssh waits for LocalCommand, so do the rest in the background
+    os.setsid()
+    devnull = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(devnull, fd)
+    base = ["ssh", "-o", "PermitLocalCommand=no", "-o", "BatchMode=yes"]
+    ctl, deadline = None, time.time() + 20
+    while not ctl and time.time() < deadline:
+        for c in control_sockets(chash):
+            if os.path.exists(c) and run(base + ["-S", c, "-O", "check", host])[0] == 0:
+                ctl = c
+                break
+        else:
+            time.sleep(0.5)
+    if not ctl:
+        log("%s: no shared connection to ask for the forward through (is ControlMaster off?)" % host)
+        os._exit(1)
+    rc, out = run(base + ["-S", ctl, host,
+                          'd="$HOME/.cache/tm/share"; mkdir -p "$d" && chmod 700 "$d" && printf %s "$d"'], timeout=15)
+    rdir = out.decode().strip()
+    if rc != 0 or not rdir.startswith("/"):
+        log("%s: couldn't make the forward's folder there" % host)
+        os._exit(1)
+    name = "%s-%s.sock" % (re.sub(r"[^A-Za-z0-9-]", "-", local)[:30], os.urandom(4).hex())
+    rc, _ = run(base + ["-S", ctl, "-O", "forward", "-R", "%s/%s:%s" % (rdir, name, LOCAL_SOCK), host], timeout=15)
+    log("%s: forward %s/%s %s" % (host, rdir, name, "ready" if rc == 0 else "FAILED"))
+    os._exit(0 if rc == 0 else 1)
+
+
+def cmd_status(_args):
+    print("helper:    " + ("running (%s)" % LOCAL_SOCK if alive(LOCAL_SOCK) else "not running"))
+    data, name, err = clipboard()
+    print("clipboard: " + (err or "%s, %d bytes" % (name, len(data))))
+    try:
+        with open(LOG) as f:
+            last = f.readlines()[-3:]
+        print("recent:\n" + "".join("  " + l for l in last), end="")
+    except OSError:
+        pass
+    return 0
+
+
+SSH_CONFIG = os.path.join(HOME, ".ssh", "config")
+
+
+def cmd_setup(args):
+    yes = "-y" in args
+    hosts = [a for a in args if not a.startswith("-")]
+    if len(hosts) != 1:
+        die("usage: tm-share setup HOST   (the name you ssh to, e.g. claude-box)")
+    host = hosts[0]
+    if not re.match(r"^[A-Za-z0-9._-]+$", host):
+        die("host names can only contain letters, digits, '.', '_' and '-'")
+    print("Checking %s is reachable..." % host)
+    p = subprocess.run(["ssh", "-o", "ConnectTimeout=8", "-o", "ControlMaster=no", "-o", "ControlPath=none",
+                        "-o", "PermitLocalCommand=no", host, "true"], stdin=subprocess.DEVNULL)
+    if p.returncode != 0:
+        die("couldn't reach %s over SSH" % host)
+    start, end = "# >>> tm-share %s >>>" % host, "# <<< tm-share %s <<<" % host
+    # The forward isn't a RemoteForward line: sshd leaves the socket file behind when a
+    # connection ends, and a fixed name would then fail to bind on every later connection.
+    # LocalCommand asks for one with a fresh name through the shared connection instead.
+    block = "\n".join([
+        start,
+        "# Managed by 'tm-share setup': lets %s fetch images you drag in or paste, back through" % host,
+        "# this connection. Remove this block to stop it.",
+        "Host %s" % host,
+        "  PermitLocalCommand yes",
+        "  LocalCommand %d/.local/bin/tm-share connected %n %C %L",
+        "  # One shared connection (the same folder tm uses), so the forward is made once.",
+        "  ControlMaster auto",
+        "  ControlPath ~/.cache/tm/cm-%C",
+        "  ControlPersist 10m",
+        end, ""])
+    print("\nThis goes at the end of %s:\n\n%s" % (SSH_CONFIG, block))
+    if not yes:
+        if input("Add it? [Y/n] ").strip().lower() not in ("", "y", "yes"):
+            return 1
+    os.makedirs(os.path.dirname(SSH_CONFIG), mode=0o700, exist_ok=True)
+    text = open(SSH_CONFIG).read() if os.path.exists(SSH_CONFIG) else ""
+    text = re.sub(r"\n?%s\n.*?%s\n" % (re.escape(start), re.escape(end)), "\n", text, flags=re.S)
+    text = text.rstrip("\n")
+    with open(SSH_CONFIG, "w") as f:
+        f.write(text + "\n\n" + block if text else block)
+    os.chmod(SSH_CONFIG, 0o600)
+    cmd_serve(["--background"])
+    print("Done. Close any open connections to %s and connect again." % host)
+    return 0
+
+
+# --- the machine Claude runs on ---------------------------------------------------------
+
+def parent(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return int(f.read().rsplit(")", 1)[1].split()[1])
+    except (OSError, IndexError, ValueError):
+        try:
+            return int(subprocess.check_output(["ps", "-o", "ppid=", "-p", str(pid)]).strip())
+        except (OSError, subprocess.CalledProcessError, ValueError):
+            return 0
+
+
+def listening_paths(pid):
+    """Unix socket paths the process has open (Linux)."""
+    try:
+        inodes = set()
+        for fd in os.listdir("/proc/%d/fd" % pid):
+            try:
+                link = os.readlink("/proc/%d/fd/%s" % (pid, fd))
+            except OSError:
+                continue
+            if link.startswith("socket:["):
+                inodes.add(link[8:-1])
+        paths = []
+        with open("/proc/net/unix") as f:
+            next(f)
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 8 and parts[6] in inodes:
+                    paths.append(parts[7])
+        return paths
+    except OSError:
+        return []
+
+
+def tmux(*args):
+    try:
+        return subprocess.check_output(("tmux",) + args, stderr=subprocess.DEVNULL).decode().strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+def client_pid_for_pane():
+    """The tmux client most recently active on this pane's session (the one you're typing in)."""
+    pane = os.environ.get("TMUX_PANE")
+    if not (os.environ.get("TMUX") and pane):
+        return None
+    session = tmux("display-message", "-p", "-t", pane, "#{session_id}")
+    best = None
+    for line in tmux("list-clients", "-t", session, "-F", "#{client_activity} #{client_pid}").splitlines():
+        try:
+            act, pid = (int(x) for x in line.split())
+        except ValueError:
+            continue
+        if best is None or act > best[0]:
+            best = (act, pid)
+    return best and best[1]
+
+
+def find_socket(start_pid=None):
+    """The forward that leads back to the computer you're typing from."""
+    if not os.path.isdir(REMOTE_DIR):
+        return None
+    live = []
+    for name in os.listdir(REMOTE_DIR):
+        p = os.path.join(REMOTE_DIR, name)
+        if not name.endswith(".sock"):
+            continue
+        if alive(p):
+            live.append(p)
+        else:
+            try:  # left behind by a connection that's gone
+                os.unlink(p)
+            except OSError:
+                pass
+    if len(live) <= 1:
+        return live[0] if live else None
+    # Several computers connected: follow the processes up from your terminal to the SSH
+    # connection it came in on, and use the forward that connection holds.
+    pid, seen = start_pid or client_pid_for_pane() or os.getpid(), 0
+    while pid > 1 and seen < 30:
+        for p in listening_paths(pid):
+            if p in live:
+                return p
+        pid, seen = parent(pid), seen + 1
+    return max(live, key=lambda p: os.stat(p).st_mtime)
+
+
+NOT_CONNECTED = ("there's no connection back to your computer. On your computer run "
+                 "'tm-share setup <this machine's ssh name>', then reconnect.")
+
+
+class NotThere(RuntimeError):
+    """The file isn't on your computer, or there's no connection: nothing was dragged in."""
+
+
+def request(req, start_pid=None):
+    """Ask your computer for something; returns (data, name) or raises RuntimeError."""
+    path = find_socket(start_pid)
+    if not path:
+        raise NotThere(NOT_CONNECTED)
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(20)
+    try:
+        s.connect(path)
+        s.sendall((json.dumps(req) + "\n").encode())
+        line = read_line(s)
+        if not line:
+            raise RuntimeError("the helper isn't running on your computer: run 'tm-share serve' there, "
+                               "or reconnect (it starts when you connect)")
+        head = json.loads(line)
+        if not head.get("ok"):
+            raise (NotThere if head.get("missing") else RuntimeError)(head.get("error") or "failed")
+        size, chunks, got = int(head["size"]), [], 0
+        while got < size:
+            c = s.recv(min(65536, size - got))
+            if not c:
+                raise RuntimeError("the connection dropped part way")
+            chunks.append(c)
+            got += len(c)
+        return b"".join(chunks), head.get("name") or "file"
+    except (OSError, ValueError) as e:
+        raise RuntimeError("couldn't reach your computer: %s" % e)
+    finally:
+        s.close()
+
+
+def save(data, name):
+    kind = kind_of(data[:16])
+    if not kind:
+        raise RuntimeError("what came back isn't an image or PDF")
+    os.makedirs(DROPS, exist_ok=True)
+    os.chmod(DROPS, 0o700)
+    cutoff = time.time() - KEEP_DAYS * 86400
+    for old in os.listdir(DROPS):
+        p = os.path.join(DROPS, old)
+        try:
+            if os.path.getmtime(p) < cutoff:
+                os.unlink(p)
+        except OSError:
+            pass
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.splitext(name)[0]).strip("-.")[:60] or "image"
+    path = os.path.join(DROPS, "%s-%s.%s" % (time.strftime("%Y%m%d-%H%M%S"), stem, kind))
+    n = 1
+    while os.path.exists(path):
+        path = os.path.join(DROPS, "%s-%s-%d.%s" % (time.strftime("%Y%m%d-%H%M%S"), stem, n, kind))
+        n += 1
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    return path
+
+
+def fetch_file(path, start_pid=None):
+    return save(*request({"op": "file", "path": path}, start_pid))
+
+
+def fetch_clip(start_pid=None):
+    return save(*request({"op": "clip"}, start_pid))
+
+
+EXT_RE = r"\.(?:%s)" % "|".join(EXTS)
+PATH_PATTERNS = [
+    re.compile(r"file://[^\s'\"<>]+?%s(?=$|[\s'\"<>),;])" % EXT_RE, re.I),          # file:///a/b%20c.png
+    re.compile(r"'((?:~|/)[^'\n]+?%s)'" % EXT_RE, re.I),                              # '/a/b c.png'
+    re.compile(r"\"((?:~|/)[^\"\n]+?%s)\"" % EXT_RE, re.I),                           # "/a/b c.png"
+    re.compile(r"(?<![\w/~.:'\"])((?:~|/)(?:\\.|[^\s'\"\\])+?%s)(?=$|[\s'\"),;:?!]|\.(?:\s|$))" % EXT_RE, re.I),  # /a/b\ c.png
+]
+
+
+def paths_in(text):
+    """Image/PDF paths in a message, the way terminals type them when you drag a file in."""
+    found, taken = [], []
+    for pat in PATH_PATTERNS:
+        for m in pat.finditer(text):
+            span = m.span()
+            if any(s <= span[0] < e for s, e in taken):
+                continue
+            taken.append(span)
+            raw = m.group(1) if pat.groups else m.group(0)
+            if raw.lower().startswith("file://"):
+                p = urllib.parse.unquote(urllib.parse.urlparse(raw).path)
+            elif pat is PATH_PATTERNS[-1]:
+                p = re.sub(r"\\(.)", r"\1", raw)
+            else:
+                p = raw
+            if p not in found:
+                found.append(p)
+    return found
+
+
+def cmd_hook(_args):
+    try:
+        prompt = json.load(sys.stdin).get("prompt") or ""
+    except ValueError:
+        return 0
+    missing = [p for p in paths_in(prompt) if not os.path.exists(os.path.expanduser(p))]
+    if not missing:
+        return 0
+    lines = []
+    for p in missing[:10]:
+        try:
+            lines.append("- %s -> %s" % (p, fetch_file(p)))
+        except NotThere:
+            pass  # a path you mentioned, not a file you dragged in: say nothing
+        except RuntimeError as e:
+            lines.append("- %s -> could not fetch it: %s" % (p, e))
+    if not lines:
+        return 0
+    context = ("tm-share: the user is on another computer, so these files in their message only exist "
+               "there. Copies were fetched to this machine; use the copy (read it) wherever they "
+               "refer to the original path. If a fetch failed, tell them why.\n" + "\n".join(lines))
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                             "additionalContext": context}}))
+    return 0
+
+
+def cmd_fetch(args):
+    if len(args) != 1:
+        die("usage: tm-share fetch PATH")
+    try:
+        print(fetch_file(args[0]))
+    except RuntimeError as e:
+        die(str(e))
+    return 0
+
+
+def cmd_clip(_args):
+    try:
+        print(fetch_clip())
+    except RuntimeError as e:
+        die(str(e))
+    return 0
+
+
+def cmd_paste(args):
+    """tmux key: fetch the clipboard image and type its path into the pane."""
+    opts = dict(zip(args[::2], args[1::2]))
+    pane, client = opts.get("--pane"), opts.get("--client")
+    try:
+        pid = int(opts.get("--client-pid", "0")) or None
+    except ValueError:
+        pid = None
+    msg = lambda m: tmux("display-message", *(["-c", client] if client else []), "-d", "5000", m)
+    try:
+        path = fetch_clip(pid)
+    except RuntimeError as e:
+        msg("tm-share: " + str(e))
+        return 1
+    tmux("send-keys", *(["-t", pane] if pane else []), "-l", path + " ")
+    msg("tm-share: pasted " + os.path.basename(path))
+    return 0
+
+
+# --- Claude Code settings (install.sh / uninstall.sh) -----------------------------------
+
+def hook_entry():
+    return {"type": "command", "command": BIN + " hook", "timeout": 30}
+
+
+def is_ours(h):
+    return isinstance(h, dict) and str(h.get("command", "")).endswith("tm-share hook")
+
+
+def edit_settings(config_dir, add):
+    path = os.path.join(os.path.expanduser(config_dir), "settings.json")
+    if not os.path.isdir(os.path.dirname(path)):
+        return 0
+    try:
+        settings = json.load(open(path)) if os.path.exists(path) else {}
+    except ValueError:
+        die("%s isn't valid JSON; left it alone" % path)
+    groups = settings.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
+    for g in groups:
+        g["hooks"] = [h for h in g.get("hooks", []) if not is_ours(h)]
+    groups[:] = [g for g in groups if g.get("hooks")]
+    if add:
+        groups.append({"hooks": [hook_entry()]})
+    if not groups:
+        del settings["hooks"]["UserPromptSubmit"]
+    if not settings["hooks"]:
+        del settings["hooks"]
+    tmp = path + ".tm-share.tmp"
+    with open(tmp, "w") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    if os.path.exists(path):
+        shutil.copymode(path, tmp)
+    os.replace(tmp, path)
+    return 0
+
+
+def main():
+    cmds = {"serve": cmd_serve, "status": cmd_status, "setup": cmd_setup, "connected": cmd_connected,
+            "hook": cmd_hook,
+            "fetch": cmd_fetch, "clip": cmd_clip, "paste": cmd_paste,
+            "install-hook": lambda a: edit_settings(a[0], True),
+            "uninstall-hook": lambda a: edit_settings(a[0], False)}
+    if len(sys.argv) < 2 or sys.argv[1] not in cmds:
+        print(__doc__.strip())
+        return 0 if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help") else 1
+    return cmds[sys.argv[1]](sys.argv[2:]) or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -71,6 +71,8 @@ brackets: `WORK · W-MYPROJECT (myhost)`. On the right: the account's [tokens](#
 - **Another Claude window:** `prefix P` opens a personal-account Claude window in the current
   folder, inside whatever session you're in.
 - **Hop between sessions:** `prefix s` shows tmux's own list.
+- **Paste an image from your computer** into a session on another machine: `prefix I` (see
+  [images](#images-in-a-session-on-another-machine)).
 
 Sessions are saved every minute and come back, with their Claude conversation, after a reboot.
 
@@ -176,6 +178,22 @@ detaches it). `+ new session on <name>` starts any kind of session there.
 Install tm on the other machine too if you want its sessions coloured and restored after a
 reboot, the machine name in its status bar, or local model sessions with its own settings.
 
+### Images in a session on another machine
+
+Dragging a screenshot into Claude, or pasting one, normally fails over SSH: the image is on your
+computer, Claude is on the other machine. Set it up once on your computer:
+
+```bash
+tm-share setup claude-box     # the name you ssh to
+```
+
+Reconnect, and then in Claude on that machine:
+
+- **drag an image into the terminal** and send your message: Claude gets a copy;
+- **`prefix I`** pastes the image on your clipboard (Linux needs `wl-clipboard` or `xclip`).
+
+Details in the [README](README.md#images-over-ssh).
+
 ## Troubleshooting
 
 | Problem | Try |
@@ -185,4 +203,5 @@ reboot, the machine name in its status bar, or local model sessions with its own
 | Local model: "API error" | Usually the API key or the model name. Check both in settings, then start a **new** session: running ones keep the settings they started with. |
 | A remote machine shows `(offline)` | `⚙ settings` → remote machines → the machine → `test the connection`. |
 | Colours look grey over SSH | On the machine you attach to: `git -C ~/Code/tm pull`, then `tmux source-file ~/.tmux.conf`. |
+| A dragged or pasted image doesn't reach Claude | On your computer: `tm-share status`. On the other machine: `tm-share clip` says what's wrong. Reconnect after `tm-share setup`. |
 | Changes don't show in running sessions | `tmux source-file ~/.tmux.conf && tmux-account-style all` restyles them. |

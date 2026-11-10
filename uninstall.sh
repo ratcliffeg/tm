@@ -6,6 +6,14 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 BIN="$HOME/.local/bin"
 
+echo "==> Removing the image hook from Claude Code's settings"
+if command -v python3 >/dev/null 2>&1; then
+    for d in "$HOME/.claude" "$HOME/.claude-personal" "$HOME/.claude-local"; do
+        [ -d "$d" ] && "$REPO/bin/tm-share" uninstall-hook "$d"
+    done
+fi
+pkill -f "tm-share serve" 2>/dev/null || true
+
 echo "==> Removing script links"
 for f in "$REPO"/bin/*; do
     target="$BIN/$(basename "$f")"
