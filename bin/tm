@@ -900,8 +900,11 @@ stop_all() {
 while true; do
     load_settings
     # --expect: the first line of fzf's output is the key that ended it (empty for Enter).
-    sel=$(main_list | tmfzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' --expect=ctrl-x \
-              --header='Enter open · ^X close · Esc quit · ^R refresh') || exit 0
+    # The list comes from a process substitution, not a pipe: $(a | b) doesn't return until a has
+    # finished, and main_list is still waiting on slow remote machines, so choosing something
+    # early (e.g. "new session locally") would freeze tm until they answered.
+    sel=$(tmfzf "${FZF_OPTS[@]}" --border-label=' tm · tmux sessions ' --expect=ctrl-x \
+              --header='Enter open · ^X close · Esc quit · ^R refresh' < <(main_list)) || exit 0
     pressed=${sel%%$'\n'*}; sel=${sel#*$'\n'}
     key=${sel%%$'\t'*}
     if [ "$pressed" = ctrl-x ]; then close_session "$key"; continue; fi
